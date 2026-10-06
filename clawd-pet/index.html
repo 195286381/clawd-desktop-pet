@@ -5,6 +5,9 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'">
 <title>Clawd</title>
 <style>
+  /* 像素字体:方舟像素字体 12px 简体中文版(SIL OFL 1.1,见 fonts/ark-pixel-OFL.txt)。
+     点阵字只有在 12px 的整数倍下才清晰,所以气泡和血条里的字统一 12px、不加粗(加粗会把点阵糊掉),强调靠颜色。 */
+  @font-face { font-family: "Ark Pixel"; src: url("fonts/ark-pixel-12px-proportional-zh_hans.otf.woff2") format("woff2"); }
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent;
     -webkit-user-select: none; user-select: none; }
   #c { position: absolute; left: 0; top: 0; will-change: transform; cursor: grab; }
@@ -16,16 +19,16 @@
   #badge { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 6px; opacity: 0;
     padding: 4px 6px; background: #FFFCF6; border: 1px solid #E8DFD0; border-radius: 8px;
     box-shadow: 0 3px 10px rgba(60, 40, 20, .14);
-    font: 700 10px/12px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; white-space: nowrap;
+    font: 12px/12px "Ark Pixel", -apple-system, "PingFang SC", sans-serif; -webkit-font-smoothing: none; white-space: nowrap;
     pointer-events: none; transition: opacity .25s; font-variant-numeric: tabular-nums; }
   #badge.show { opacity: 1; }
   #badge .hp { display: flex; gap: 2px; }
   #badge .hp i { width: 5px; height: 8px; border-radius: 1.5px; background: #EDE6DA; transition: background .4s; }
-  #badge b { color: #8A8470; }
+  #badge b { color: #8A8470; font-weight: normal; }
   #badge.vert { flex-direction: column; gap: 4px; padding: 6px 4px; }
   #badge.vert .hp { flex-direction: column-reverse; }
   #badge.vert .hp i { width: 8px; height: 5px; }
-  #badge.vert b { display: flex; flex-direction: column; align-items: center; line-height: 11px; }
+  #badge.vert b { display: flex; flex-direction: column; align-items: center; line-height: 12px; }
   #badge.vert b span { display: block; }
   /* 五档配色取自油画颜料:绿土 → 土黄 → 焦赭 → 茜素红 → 戴维灰,饱和度统一压低,和陶土橘、米白气泡同一调子 */
   #badge.lv0 .hp i.on { background: #7FA383; }
@@ -51,24 +54,66 @@
   #bubble { position: absolute; left: 0; top: 0; max-width: 300px; padding: 10px 14px 9px;
     background: #FFFCF6; color: #3D3929; border: 1px solid #E8DFD0; border-radius: 14px;
     box-shadow: 0 6px 20px rgba(60, 40, 20, .18); pointer-events: none; opacity: 0;
-    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
-    transition: opacity .2s; --tail: 50%; white-space: nowrap; }
-  #bubble.show { opacity: 1; }
+    font: 12px/18px "Ark Pixel", -apple-system, "PingFang SC", sans-serif; -webkit-font-smoothing: none;
+    transition: opacity .18s, scale .18s; scale: .94; transform-origin: var(--tail) 100%;
+    --tail: 50%; white-space: nowrap; }
+  #bubble.show { opacity: 1; scale: 1; }
+  /* 弹出时从尖角处"啵"一下(用独立的 scale 属性,不影响定位用的 transform) */
+  #bubble.pop { animation: pop .38s cubic-bezier(.3, 1.6, .5, 1) both; }
+  @keyframes pop { from { scale: .7; opacity: 0; } to { scale: 1; opacity: 1; } }
   #bubble::after { content: ""; position: absolute; bottom: -7px; left: calc(var(--tail) - 7px);
     width: 12px; height: 12px; background: #FFFCF6; border-right: 1px solid #E8DFD0;
     border-bottom: 1px solid #E8DFD0; transform: rotate(45deg); }
-  #bubble .title { font-weight: 600; color: #C15F3C; margin-bottom: 4px; }
+
+  /* ---- 像素风对话框(对你说的话 say / 自言自语 chat / 用量面板 usage)----
+     外框画在 .pxf 里:.pxs 用 clip-path 剪出"方框 + 阶梯尖角",再用 4 个方向的 drop-shadow 描出 3px 像素描边,
+     四角自然是缺角的像素圆角;文字不在这层里,所以不会被描边。 */
+  #bubble.say, #bubble.chat, #bubble.usage { background: none; border: none; box-shadow: none; border-radius: 0; isolation: isolate; }
+  #bubble.say, #bubble.chat { padding: 7px 13px 8px; letter-spacing: 1px; }
+  #bubble.usage { padding: 11px 15px 10px; }
+  #bubble.say::after, #bubble.chat::after, #bubble.usage::after { display: none; }
+  /* 用量面板里也换成像素风:方角进度条、像素虚线分隔 */
+  #bubble.usage .qbar, #bubble.usage .qbar div { border-radius: 0; }
+  #bubble.usage .qbar { height: 6px; box-shadow: inset 0 -2px 0 rgba(74, 63, 53, .08); }
+  #bubble.usage .qbar div { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .12), inset 0 2px 0 rgba(255, 255, 255, .25); }
+  #bubble.usage .sep { height: 2px; background: repeating-linear-gradient(90deg, #E2D7C5 0 4px, transparent 4px 8px); margin: 6px 0 7px; }
+  #bubble.usage .title { letter-spacing: .5px; }
+  #bubble .pxf { position: absolute; inset: 0 0 -9px 0; z-index: -1; --ol: #4A3F35;
+    filter: drop-shadow(3px 0 0 var(--ol)) drop-shadow(-3px 0 0 var(--ol)) drop-shadow(0 3px 0 var(--ol)) drop-shadow(0 -3px 0 var(--ol))
+            drop-shadow(0 4px 0 rgba(74, 63, 53, .22)); }
+  #bubble .pxs { position: absolute; inset: 0; background: #FFF8EC;
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 9px),
+      calc(var(--tail) + 6px) calc(100% - 9px), calc(var(--tail) + 6px) calc(100% - 6px),
+      calc(var(--tail) + 3px) calc(100% - 6px), calc(var(--tail) + 3px) calc(100% - 3px),
+      var(--tail) calc(100% - 3px), var(--tail) 100%,
+      calc(var(--tail) - 6px) 100%, calc(var(--tail) - 6px) calc(100% - 9px), 0 calc(100% - 9px)); }
+  #bubble.say { color: #3A322A; }
+  #bubble.say b { color: #B85C3A; }
+  /* 自言自语:没有尖角,下面挂两颗像素小方块;描边更浅、字更柔和 */
+  #bubble.chat { color: #6B6150; }
+  #bubble.chat .pxf { --ol: #A8977F; }
+  #bubble.chat .pxs { clip-path: inset(0 0 9px 0); }
+  #bubble .pxf i { position: absolute; background: #FFF8EC; }
+  #bubble.chat .pxf i.d1 { width: 6px; height: 6px; bottom: -6px; left: calc(var(--tail) - 3px); }
+  #bubble.chat .pxf i.d2 { width: 3px; height: 3px; bottom: -18px; left: calc(var(--tail) + 3px); }
+  #bubble.say .pxf i, #bubble.usage .pxf i { display: none; }
+  /* 逐字出现 */
+  #bubble .ch { display: inline-block; white-space: pre; opacity: 0; translate: 0 3px;
+    animation: chIn .16s ease-out forwards; animation-delay: calc(var(--i) * 32ms + 120ms); }
+  @keyframes chIn { to { opacity: 1; translate: 0 0; } }
+  #bubble .title { color: #C15F3C; margin-bottom: 4px; }
+  #bubble b { font-weight: normal; }
   #bubble .row { display: grid; grid-template-columns: 76px auto 1fr; gap: 8px; align-items: baseline; }
   #bubble .row span { color: #8A8470; }
   #bubble .row b { font-variant-numeric: tabular-nums; }
-  #bubble .row i { font-style: normal; color: #8A8470; font-size: 12px; text-align: right; }
-  #bubble .models { margin-top: 4px; font-size: 12px; color: #6B6556; }
-  #bubble .foot { margin-top: 4px; font-size: 11px; color: #A39E90; }
+  #bubble .row i { font-style: normal; color: #8A8470; text-align: right; }
+  #bubble .models { margin-top: 4px; color: #6B6556; }
+  #bubble .foot { margin-top: 4px; color: #A39E90; }
   #bubble .quota { margin: 2px 0 6px; }
   #bubble .qhead { display: grid; grid-template-columns: 76px auto 1fr; gap: 8px; align-items: baseline; }
   #bubble .qhead span { color: #8A8470; }
   #bubble .qhead b { font-variant-numeric: tabular-nums; }
-  #bubble .qhead i { font-style: normal; color: #8A8470; font-size: 12px; text-align: right; }
+  #bubble .qhead i { font-style: normal; color: #8A8470; text-align: right; }
   #bubble .qbar { height: 6px; margin-top: 3px; border-radius: 3px; background: #EFE8DC; overflow: hidden; }
   #bubble .qbar div { height: 100%; border-radius: 3px; }
   #bubble .quota.lv0 .qhead b { color: #4E7A57; }  #bubble .quota.lv0 .qbar div { background: #7FA383; }

@@ -290,13 +290,38 @@ function moodFrom(u) {
 const bubble = document.getElementById('bubble');
 const nowSec = () => performance.now() / 1000;
 let bubbleUntil = 0, bubbleKind = null;
-function say(html, secs, kind = 'say') {
+// kind:'say' 对你说的话 / 'chat' 自言自语(心里话气泡)/ 'usage' 用量面板
+const PX_FRAME = '<div class="pxf"><div class="pxs"></div><i class="d1"></i><i class="d2"></i></div>';   // 像素外框
+function setBubbleHtml(html, type) {
   bubble.innerHTML = html;
-  bubble.classList.add('show');
+  if (type) typeIn(bubble);
+  bubble.insertAdjacentHTML('afterbegin', PX_FRAME);
+}
+function say(html, secs, kind = 'say') {
+  setBubbleHtml(html, kind !== 'usage');   // 用量面板是数据,不逐字打
+  bubble.className = 'show ' + kind;
+  void bubble.offsetWidth;          // 重新触发弹出动画
+  bubble.classList.add('pop');
   bubbleUntil = nowSec() + secs;
   bubbleKind = kind;
 }
-function hideBubble() { bubble.classList.remove('show'); bubbleKind = null; }
+function hideBubble() { bubble.classList.remove('show', 'pop'); bubbleKind = null; }
+// 把文字拆成一个个字,配合 CSS 逐字出现(保留 <b>、<br> 等标签)
+function typeIn(el) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  let i = 0;
+  for (const n of nodes) {
+    const frag = document.createDocumentFragment();
+    for (const c of Array.from(n.textContent)) {
+      const sp = document.createElement('span');
+      sp.className = 'ch'; sp.textContent = c; sp.style.setProperty('--i', i++);
+      frag.appendChild(sp);
+    }
+    n.replaceWith(frag);
+  }
+}
 
 const fmtCost = c => '$' + (c >= 100 ? c.toFixed(0) : c.toFixed(2));
 function fmtTokens(n) {
@@ -387,7 +412,7 @@ window.pet?.onUsage(u => {
   }
   if (!usageInit && m === 4 && !isClinging()) setAction({ type: 'sleep' });
   usageInit = true;
-  if (bubbleKind === 'usage') bubble.innerHTML = usageHtml(usage);   // 气泡开着时实时刷新
+  if (bubbleKind === 'usage') setBubbleHtml(usageHtml(usage), false);   // 气泡开着时实时刷新
 });
 
 // ---------------- 自言自语 ----------------
@@ -533,6 +558,7 @@ window.pet?.onCommand(cmd => {
     return;
   }
   if (cmd === 'chat') { chatter(true); return; }
+  if (cmd.startsWith('say:')) { say(cmd.slice(4), 4); return; }   // 开发自测:让它说一句
   if (cmd.startsWith('hp:')) { hpMode = cmd.slice(3); return; }
   if (cmd.startsWith('face:')) { flashFace(cmd.slice(5), 6); return; }
   if (cmd.startsWith('prop:')) { propOverride = cmd.slice(5); propOverrideUntil = clock.elapsedTime + 6; return; }
@@ -827,7 +853,7 @@ function frame() {
     // 趴下打盹:身体沉下去(脚不动,腿被压短),眼睛闭上,手耷拉着,呼吸起伏
     by = -LEG_L * 0.5 + Math.sin(t * 1.2) * 0.025;
     squash = 0.95; eyeOpen = 0.06; armRot = [-0.28, -0.28]; look = 0;
-    if (p > 0.8 && !a.said && bubbleKind === null) { a.said = true; say('Zzz…', Math.min(3, a.dur - 1)); }
+    if (p > 0.8 && !a.said && bubbleKind === null) { a.said = true; say('Zzz…', Math.min(3, a.dur - 1), 'chat'); }
     if (p > a.dur) finish();
   }
 
@@ -852,7 +878,7 @@ function frame() {
     by = -LEG_L * 0.55 + Math.sin(t * 0.9) * 0.03;
     squash = 0.94; eyeOpen = 0.06; armRot = [-0.32, -0.32]; look = 0;
     if (!a.nextZ) a.nextZ = 1.5;
-    if (p > a.nextZ) { a.nextZ = p + 14; if (bubbleKind === null) say('Zzz…', 3); }
+    if (p > a.nextZ) { a.nextZ = p + 14; if (bubbleKind === null) say('Zzz…', 3, 'chat'); }
     if (mood < 4 && p > 1) finish();
   }
 
@@ -1108,7 +1134,7 @@ function frame() {
   if (bubbleKind) {
     const bw = bubble.offsetWidth, bh = bubble.offsetHeight, an = petAnchor(), px = an.x;
     const left = Math.round(Math.min(Wpx - bw - 8, Math.max(8, px - bw / 2)));
-    const top = Math.round(Math.max(8, an.top - bh - 14));
+    const top = Math.round(Math.max(8, an.top - bh - (bubbleKind === 'chat' ? 30 : bubbleKind === 'say' ? 18 : 14)));   // 心里话下面挂着两颗小方块,要多让一点
     bubble.style.transform = `translate(${left}px, ${top}px)`;
     bubble.style.setProperty('--tail', `${Math.min(bw - 18, Math.max(18, px - left))}px`);
   }

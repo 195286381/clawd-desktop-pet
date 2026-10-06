@@ -27,10 +27,16 @@
 - 菜单里可以开「完全穿透（只看不点）」：Clawd 完全不接收鼠标，只通过菜单互动
 
 **常驻 & 收起**
-- 菜单栏和 Dock 里都有 Clawd 图标
+- 菜单栏和 Dock 里都有 Clawd 图标（不想占 Dock 位置的话，可以在「设置」里关掉 Dock 图标，Clawd 照常在桌面上，菜单从菜单栏图标打开）
   - 左键点菜单栏图标：收起 / 放出 Clawd
   - 点 Dock 图标：收起时放出来，已经在外面就跳一下
-  - 右键任一图标：打开完整菜单（各种动作、查看用量、自由活动、完全穿透、血条、大小、贴到屏幕边上、回到屏幕中间、开机自动启动、退出）
+  - 右键任一图标：打开完整菜单
+    - 收起 / 放出 Clawd、查看用量
+    - **动作**：跳一下、打招呼、跳舞、探头张望、散散步
+    - **位置**：贴到屏幕边上 / 离开边缘、回到屏幕中间
+    - **外观**：大小、血条
+    - **设置**：自由活动、完全穿透（只看不点）、在 Dock 中显示图标、开机自动启动
+    - 退出 Clawd（菜单栏图标里）
 - 收起时 Clawd 蹦起来转一圈缩小消失，放出时从屏幕上方掉下来；收起期间不占 CPU / GPU
 
 ## Claude Code 用量
@@ -74,7 +80,7 @@ Clawd 头顶有一个血条：10 格表示 **5 小时额度**，旁边的小圆�
 - **自言自语**：闲着时每隔一阵随机说一句，内容看时间、额度、是否贴边、你最近用得猛不猛
 - **大小**：菜单「大小」里选小 / 中 / 大 / 特大
 
-「血条」和「大小」的设置会记住，保存在 `~/Library/Application Support/Clawd/settings.json`。
+「血条」「大小」和「在 Dock 中显示图标」的设置会记住，保存在 `~/Library/Application Support/Clawd/settings.json`。
 
 ## 贴边模式
 
@@ -132,10 +138,11 @@ clawd/
 ├── clawd-pet/                 桌宠(Electron + three.js)
 │   ├── main.js                主进程:透明置顶窗口、点击穿透、菜单栏 / Dock、用量调度
 │   ├── preload.js             主进程与页面之间的接口
-│   ├── index.html             页面与用量气泡样式
+│   ├── index.html             页面、像素风对话框 / 用量面板 / 血条样式
 │   ├── pet.js                 3D 模型、动作、物理、互动、心情
 │   ├── usage.js               本地用量统计 + 订阅额度查询
 │   ├── trayTemplate*.png      菜单栏图标
+│   ├── fonts/                 像素字体(方舟像素字体 12px 简体中文版 + OFL 授权)
 │   └── build/                 应用图标(Blender 渲染脚本 + 合成脚本)
 ├── clawd.html                 网页版 3D Clawd(浏览器直接打开)
 ├── claude_figure.*            最早的 Blender 人偶(造型不是 Clawd,留作纪念)
@@ -153,3 +160,5 @@ python3 build/make_icon.py
 ## 说明
 
 Clawd 是 Anthropic 的吉祥物。本项目是个人爱好作品，与 Anthropic 无关，仅供个人使用。
+
+气泡、用量面板和血条里的文字使用 [方舟像素字体（Ark Pixel Font）](https://github.com/TakWolf/ark-pixel-font) 12px 简体中文版，© TakWolf，以 [SIL Open Font License 1.1](clawd-pet/fonts/ark-pixel-OFL.txt) 授权。
