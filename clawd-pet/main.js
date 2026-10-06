@@ -65,10 +65,11 @@ function setPref(key, v) {
 }
 
 // ---------- 和 Claude Code 联动 ----------
-// Clawd 在本机 127.0.0.1 开一个小接口;Claude Code 的 hooks(回复完成 / 需要确认 / 等你输入 / 发出指令)
-// 用 curl 把事件发过来。Clawd 没开着时 curl 静默失败,不影响 Claude Code。
+// Clawd 在本机 127.0.0.1 开一个小接口;Claude Code 的 hooks(发出指令 / 调用工具 / 工具失败 / 回复完成 /
+// 出错停下 / 需要确认 / 会话结束)用 curl 把事件发过来。hooks 都是 async(后台跑),不拖慢 Claude Code;
+// Clawd 没开着时 curl 静默失败,也不影响。
 const HOOK_PORT = (!app.isPackaged && Number(process.env.CLAWD_HOOK_PORT)) || 47615;   // 开发自测可换端口,避免和正在运行的 Clawd 冲突
-const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'Notification', 'SessionEnd'];
+const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'SessionEnd'];
 const HOOK_MARK = 'clawd-hook';
 const HOOK_CMD = `curl -s -m 2 -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:${HOOK_PORT}/hook >/dev/null 2>&1 || true # ${HOOK_MARK}`;
 // 开发自测可以用 CLAWD_CC_SETTINGS 指向一个临时文件,避免动到真正的配置
@@ -78,19 +79,21 @@ function readCC() {
   catch (e) { if (e.code === 'ENOENT') return {}; throw e; }   // 文件损坏时抛出,不去覆盖它
 }
 const isClawdHook = h => typeof h.command === 'string' && h.command.includes(HOOK_MARK);
-function ccHooked() {
-  try { const h = readCC().hooks || {}; return HOOK_EVENTS.every(ev => (h[ev] || []).some(g => (g.hooks || []).some(isClawdHook))); }
-  catch { return false; }
+function ccHookEvents() {   // 已经装了 Clawd hook 的事件
+  try { const h = readCC().hooks || {}; return HOOK_EVENTS.filter(ev => (h[ev] || []).some(g => (g.hooks || []).some(isClawdHook))); }
+  catch { return []; }
 }
+const ccHooked = () => ccHookEvents().length > 0;
 // 只增删 Clawd 自己的那几条,别的 hooks 原样保留;改之前先备份
 function setCCHooks(on) {
   const file = ccSettingsFile();
   const cfg = readCC();
-  if (fs.existsSync(file)) fs.copyFileSync(file, file + '.clawd-backup');
+  // 只在第一次备份:保留的是装 Clawd 之前的原样
+  if (fs.existsSync(file) && !fs.existsSync(file + '.clawd-backup')) fs.copyFileSync(file, file + '.clawd-backup');
   const hooks = cfg.hooks || {};
   for (const ev of HOOK_EVENTS) {
     const groups = (hooks[ev] || []).map(g => ({ ...g, hooks: (g.hooks || []).filter(h => !isClawdHook(h)) })).filter(g => g.hooks.length);
-    if (on) groups.push({ hooks: [{ type: 'command', command: HOOK_CMD, timeout: 5 }] });
+    if (on) groups.push({ hooks: [{ type: 'command', command: HOOK_CMD, async: true, timeout: 5 }] });
     if (groups.length) hooks[ev] = groups; else delete hooks[ev];
   }
   if (Object.keys(hooks).length) cfg.hooks = hooks; else delete cfg.hooks;
@@ -103,7 +106,31 @@ function toggleCCHooks(on) {
     dialog.showErrorBox('没能修改 Claude Code 配置', `${ccSettingsFile()}\n\n${e.message}\n\n文件没有被改动。`);
   }
   syncPrefs(); refreshMenus();
-  if (on && ccHooked()) dialog.showMessageBox({ message: '已连接 Claude Code', detail: '新开的 Claude Code 会话会把「回复完成 / 需要确认 / 等你输入」通知给 Clawd。已经开着的会话需要重新打开才生效。\n\n原配置已备份为 settings.json.clawd-backup。' });
+  if (on && ccHooked()) dialog.showMessageBox({ message: '已连接 Claude Code', detail: '新开的 Claude Code 会话会把「在干什么 / 回复完成 / 需要确认 / 等你输入 / 出错」通知给 Clawd。已经开着的会话需要重新打开才生效。\n\n原配置已备份为 settings.json.clawd-backup。' });
+}
+// 工具名和一句话的"在干什么",只取很短的一段发给页面
+const clip = (x, n) => { const t = String(x || '').split('\n')[0].trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+function toolName(n) {
+  n = String(n || '');
+  const m = n.match(/^mcp__(.+?)__(.+)$/);   // MCP 工具:mcp__服务__工具 → 工具
+  return m ? m[2] : n;
+}
+function toolDetail(n, input) {
+  if (!input || typeof input !== 'object') return '';
+  const base = p => (p ? path.basename(String(p)) : '');
+  switch (n) {
+    case 'Bash': {   // 命令短就直接显示命令(更直观),太长才用 Claude 写的说明
+      const cmd = String(input.command || '').split('\n')[0].trim();
+      return clip(cmd.length <= 32 || !input.description ? cmd : input.description, 40);
+    }
+    case 'Edit': case 'MultiEdit': case 'Write': case 'Read': return base(input.file_path);
+    case 'NotebookEdit': return base(input.notebook_path);
+    case 'Grep': case 'Glob': return clip(input.pattern, 30);
+    case 'WebFetch': try { return new URL(input.url).hostname; } catch { return ''; }
+    case 'WebSearch': return clip(input.query, 30);
+    case 'Task': case 'Agent': return clip(input.subagent_type || input.description, 30);
+    default: return '';
+  }
 }
 http.createServer((req, res) => {
   if (req.method !== 'POST' || req.url !== '/hook') { res.writeHead(404); return res.end(); }
@@ -115,6 +142,8 @@ http.createServer((req, res) => {
     if (win && !win.isDestroyed()) win.webContents.send('cc', {
       event: String(d.hook_event_name || ''), session: String(d.session_id || ''),
       project: d.cwd ? path.basename(String(d.cwd)) : '', message: String(d.message || ''), at: Date.now(),
+      ntype: String(d.notification_type || ''),
+      tool: toolName(d.tool_name), detail: toolDetail(d.tool_name, d.tool_input), error: clip(d.error, 60),
     });
   });
 }).on('error', e => console.error('Clawd hooks 接口启动失败', e.message)).listen(HOOK_PORT, '127.0.0.1');
@@ -334,6 +363,9 @@ function createTray() {
 }
 
 app.whenReady().then(() => {
+  // 之前连过 Claude Code、但 hooks 是旧版(少几个事件):按用户原来的选择补齐
+  try { const evs = ccHookEvents(); if (evs.length && evs.length < HOOK_EVENTS.length) setCCHooks(true); } catch (e) { console.error('升级 Claude Code hooks 失败', e.message); }
+
   if (process.platform === 'darwin' && app.dock) {
     if (showDock) app.dock.show(); else app.dock.hide();
     if (!app.isPackaged) app.dock.setIcon(path.join(__dirname, 'build', 'icon.png'));   // 打包后用 .icns

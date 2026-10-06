@@ -125,6 +125,15 @@
   #bubble .quota.lv3 .qhead b { color: #93302D; }  #bubble .quota.lv3 .qbar div { background: #B8433F; }
   #bubble .quota.lv4 .qhead b { color: #7A7672; }
   #bubble .quota.lv4 .qbar { background: repeating-linear-gradient(-45deg, #E4E1DD 0 5px, #EFEDEA 5px 10px); }
+  /* 用量面板底部:Claude Code 会话列表 */
+  #bubble .sub { color: #C15F3C; margin-bottom: 2px; }
+  #bubble .sess { display: grid; grid-template-columns: 76px 1fr auto; gap: 8px; align-items: baseline; }
+  #bubble .sess span { color: #8A8470; overflow: hidden; text-overflow: ellipsis; }
+  #bubble .sess b { overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+  #bubble .sess i { font-style: normal; color: #A39E90; text-align: right; }
+  #bubble .sess.st-ask b, #bubble .sess.st-waiting b { color: #B85C3A; }
+  #bubble .sess.st-error b { color: #B8433F; }
+  #bubble .sess.st-done b { color: #6E8F72; }
   #bubble .eta { margin-top: 3px; color: #8A8470; }
   #bubble .eta.warn { color: #B8433F; }
   #bubble .eta.ok { color: #6E8F72; }

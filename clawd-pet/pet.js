@@ -416,6 +416,7 @@ function usageHtml(u) {
       .map(([k, v]) => `${k} ${Math.round(v.cost / u.today.cost * 100)}%`).join(' · ') + '</div>';
   }
   const limitNote = L ? '' : (u.limitsError ? ` · 额度:${u.limitsError}` : ' · 额度查询中…');
+  html += ccSessionsHtml();
   html += `<div class="foot">花费按 API 价格估算${limitNote} · Clawd 现在${MOOD_NAME[mood]}</div>`;
   return html;
 }
@@ -494,8 +495,13 @@ function chatter(force = false) {
   if (isClinging()) pools.push(CHAT.cling, CHAT.cling);
   const since = usage && usage.lastActive ? Date.now() - usage.lastActive : Infinity;
   if (since < 3 * 60e3) pools.push(CHAT.active);
-  else if (since > 60 * 60e3 && since < Infinity) pools.push(CHAT.idle);
-  if (ccWorking()) pools.push(CHAT.working, CHAT.working);
+  else if (since > 60 * 60e3 && since < Infinity && !ccWorking()) pools.push(CHAT.idle);   // Claude 正在干活时不说"好久没理我"
+  if (ccWorking()) {
+    pools.push(CHAT.working);
+    // 说说 Claude 正在干什么
+    const busy = [...ccSessions.values()].filter(x => x.state === 'tool').sort((a, b) => b.last - a.last)[0];
+    if (busy) pools.push([`Claude 在${ccActivity(busy)}…`], [`Claude 在${ccActivity(busy)}…`]);
+  }
   if (usage && usage.today.cost >= 20) pools.push([`今天已经烧了 ${fmtCost(usage.today.cost)} 的 token 啦 🔥`]);
   let line;
   for (let i = 0; i < 5 && (!line || line === lastChat); i++) { const pool = pools[Math.floor(Math.random() * pools.length)]; line = pool[Math.floor(Math.random() * pool.length)]; }
@@ -509,44 +515,102 @@ function chatter(force = false) {
 let chatLevel = 'normal', breakMin = 60, ccNotify = { done: true, ask: true }, ccHooks = false;
 
 // ---------------- 和 Claude Code 联动(hooks) ----------------
-// 发出指令 → 开始干活(抱电脑);回复完成 → 跳起来报告;需要确认 / 等你输入 → 举手提醒
+// 每个会话一个状态:思考中 → 调用工具(具体在干什么)→ 等你批准 / 等你回复 → 完成 / 出错。
+// Clawd 据此抱电脑干活、跳起来报告、挥手提醒;用量面板底部列出所有会话。
 const esc = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const ccSessions = new Map();   // session → { working, since, last }
-function ccWorking() {
+const ccSessions = new Map();   // session → { state, tool, detail, project, since(进入当前状态), started(这轮任务开始), last }
+const CC_BUSY = ['thinking', 'tool'];
+const TOOL_LABEL = { Bash: '运行命令', Edit: '改文件', MultiEdit: '改文件', Write: '写文件', Read: '读文件', NotebookEdit: '改笔记本',
+  Grep: '搜索', Glob: '找文件', WebFetch: '看网页', WebSearch: '搜网页', Task: '派出子助手', Agent: '派出子助手', TodoWrite: '列计划' };
+function ccPurge() {
   const now = Date.now();
-  for (const [id, x] of ccSessions) { if (now - x.last > 20 * 60e3) ccSessions.delete(id); else if (x.working) return true; }
-  return false;
+  for (const [id, x] of ccSessions) {
+    const idle = now - x.last;
+    if (idle > 30 * 60e3 || (!CC_BUSY.includes(x.state) && idle > 15 * 60e3)) ccSessions.delete(id);
+  }
+}
+function ccWorking() { ccPurge(); for (const x of ccSessions.values()) if (CC_BUSY.includes(x.state)) return true; return false; }
+function ccActivity(x, short = false) {   // 一句话描述会话在干什么
+  if (x.state === 'tool') {
+    const d = x.detail ? (short && x.detail.length > 16 ? x.detail.slice(0, 15) + '…' : x.detail) : '';
+    return `${TOOL_LABEL[x.tool] || x.tool || '干活'}${d ? '：' + d : ''}`;
+  }
+  return { thinking: '思考中', ask: '等你批准', waiting: '等你回复', done: '完成', error: '出错了' }[x.state] || '';
+}
+const CC_ICON = { thinking: '💭', tool: '⚙️', ask: '🙋', waiting: '💬', done: '✅', error: '⚠️' };
+function fmtElapsed(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s} 秒` : s < 3600 ? `${Math.floor(s / 60)} 分 ${s % 60} 秒` : `${Math.floor(s / 3600)} 小时 ${Math.floor(s % 3600 / 60)} 分`;
+}
+function ccSessionsHtml() {   // 用量面板底部的会话列表
+  ccPurge();
+  if (!ccSessions.size) return '';
+  const now = Date.now();
+  const rows = [...ccSessions.values()].sort((a, b) => b.last - a.last).slice(0, 5).map(x => {
+    const busy = CC_BUSY.includes(x.state);
+    const time = busy ? fmtElapsed(now - x.started) : x.state === 'done' || x.state === 'error' ? `${fmtElapsed(now - x.since)}前` : fmtElapsed(now - x.since);
+    return `<div class="sess st-${x.state}"><span>${esc(x.project || '会话')}</span><b>${CC_ICON[x.state] || ''} ${esc(ccActivity(x, true))}</b><i>${time}</i></div>`;
+  }).join('');
+  return `<div class="sep"></div><div class="sub">Claude Code 会话</div>${rows}`;
 }
 function ccProject(ev) { return ev.project ? `<br><b>${esc(ev.project)}</b>` : ''; }
+function ccAlert(html, secs, jump) {
+  if (paused) return;
+  say(html, secs);
+  if (isClinging() || action.type === 'drag') { action.waveT = 0; return; }
+  setAction(jump ? { type: 'jump', dir: 0, big: true } : { type: 'wave', dur: 2.4 });
+}
 window.pet?.onClaude?.(ev => {
   const sid = ev.session || '?', now = Date.now();
   ccHooks = true;   // 收到过事件就说明 hooks 已经连上了
-  const x = ccSessions.get(sid) || { working: false, since: now, last: now };
-  x.last = now;
   const wasWorking = ccWorking();
-  if (ev.event === 'UserPromptSubmit') { x.working = true; x.since = now; ccSessions.set(sid, x); }
-  else if (ev.event === 'SessionEnd') ccSessions.delete(sid);
-  else if (ev.event === 'Stop') {
-    const took = now - x.since;
-    x.working = false; ccSessions.set(sid, x);
-    // 很快就答完的不打扰,干了一会儿(≥ 15 秒)的才报告
-    if (ccNotify.done && took >= 15e3 && !paused) {
-      say(`Claude 做完啦 ✅${ccProject(ev)}`, 6);
-      flashFace('happy', 2.5);
-      if (!isClinging() && action.type !== 'drag') setAction({ type: 'jump', dir: 0, big: true });
+  const x = ccSessions.get(sid) || { state: 'thinking', tool: '', detail: '', project: '', since: now, started: now, last: now };
+  const to = (state) => { if (x.state !== state) x.since = now; x.state = state; };
+  x.last = now;
+  if (ev.project) x.project = ev.project;
+  ccSessions.set(sid, x);
+  switch (ev.event) {
+    case 'UserPromptSubmit': to('thinking'); x.started = now; x.since = now; x.tool = x.detail = ''; break;
+    case 'PreToolUse':
+      if (!CC_BUSY.includes(x.state)) x.started = now;   // 批准后继续干活,或者中途才连上
+      to('tool'); x.since = now; x.tool = ev.tool; x.detail = ev.detail;
+      break;
+    case 'PostToolUseFailure':
+      // 工具失败很常见(比如搜索没结果),只晕一下,不弹对话框
+      flashFace('dizzy', 1.6);
+      break;
+    case 'Stop': {
+      const took = now - x.started;
+      to('done');
+      // 很快就答完的不打扰,干了一会儿(≥ 15 秒)的才报告
+      if (ccNotify.done && took >= 15e3) { flashFace('happy', 2.5); ccAlert(`Claude 做完啦 ✅${ccProject(ev)}`, 6, true); }
+      break;
     }
-  } else if (ev.event === 'Notification') {
-    ccSessions.set(sid, x);
-    if (ccNotify.ask && !paused) {
-      const m = ev.message.match(/permission to use (.+)$/i);
-      if (m) say(`🙋 要用 <b>${esc(m[1])}</b>，需要你批准${ccProject(ev)}`, 8);
-      else if (/waiting for your input/i.test(ev.message)) say(`💬 Claude 在等你回复${ccProject(ev)}`, 6);
-      else say(`🔔 ${esc(ev.message)}${ccProject(ev)}`, 6);
-      if (!isClinging() && action.type !== 'drag') setAction({ type: 'wave', dur: 2.4 }); else action.waveT = 0;
+    case 'StopFailure':
+      to('error');
+      if (ccNotify.done) { flashFace('cry', 2.5); ccAlert(`⚠️ Claude 出错停下了${ccProject(ev)}`, 7); }
+      break;
+    case 'Notification': {
+      // 优先看官方的 notification_type;老版本没有这个字段时再看提示文字
+      const perm = ev.ntype === 'permission_prompt' || /permission/i.test(ev.message);
+      const idle = ev.ntype === 'idle_prompt' || ev.ntype === 'agent_needs_input' || /waiting for your input/i.test(ev.message);
+      const dialog = ev.ntype === 'elicitation_dialog' || ev.ntype === 'elicitation_url_dialog';
+      if (!perm && !idle && !dialog) break;   // 其他通知(登录成功等)不打扰
+      to(perm || dialog ? 'ask' : 'waiting');
+      if (!ccNotify.ask) break;
+      const tool = (ev.message.match(/permission to use (.+)$/i) || [])[1] || (x.state === 'ask' && x.tool) || '';
+      if (perm) ccAlert(`🙋 ${tool ? `要用 <b>${esc(tool)}</b>，` : ''}需要你批准${ccProject(ev)}`, 8);
+      else if (dialog) ccAlert(`🙋 Claude 有问题要问你${ccProject(ev)}`, 8);
+      else ccAlert(`💬 Claude 在等你回复${ccProject(ev)}`, 6);
+      break;
     }
+    case 'SessionEnd': ccSessions.delete(sid); break;
   }
   if (wasWorking !== ccWorking() && action.type === 'rest') delete action.prop;   // 状态一变,马上拿起 / 放下电脑
+  if (bubbleKind === 'usage') setBubbleHtml(usageHtml(usage), false);   // 面板开着就马上更新会话列表
 });
+// 面板开着时,会话列表里的计时每秒走一下
+setInterval(() => { if (bubbleKind === 'usage' && ccSessions.size) setBubbleHtml(usageHtml(usage), false); }, 1000);
 
 // ---------------- 额度用完预测 & 休息提醒(每次用量更新时检查) ----------------
 let etaWarnedFor = null, breakState = { start: null, n: 0 };

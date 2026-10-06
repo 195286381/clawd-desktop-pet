@@ -86,11 +86,15 @@ Under **Appearance → Quota bar** (外观 → 血条) you can choose **Always s
 
 Tick **Claude Code → Connect Claude Code (task alerts)** (连接 Claude Code（任务提醒）) in the menu and Clawd adds a few hooks to `~/.claude/settings.json`. It only appends its own entries and leaves your existing hooks untouched; the original file is backed up as `settings.json.clawd-backup`, and unticking removes those entries again. In **newly started** Claude Code sessions:
 
-- **You send a prompt**: Clawd pulls out a little laptop and works along with you; its self-talk switches to lines like "I'm keeping an eye on it 👀"
+- **Claude is working**: Clawd pulls out a little laptop and works along with you, and its self-talk says what Claude is doing, e.g. "Claude is running a command: npm test…"
 - **A reply is done** (only for tasks that took 15 seconds or more): Clawd jumps and reports "Claude is done ✅", with the project name
-- **Claude needs your approval / is waiting for your input**: Clawd waves, e.g. "🙋 Wants to use Bash — needs your approval"
+- **Claude needs your approval / is waiting for your reply / has a question for you**: Clawd waves, e.g. "🙋 Wants to use Bash — needs your approval"
+- **A tool call fails**: Clawd goes `x x` for a moment (no bubble — small failures like a search with no results are common)
+- **Claude stops with an error**: Clawd cries and tells you "⚠️ Claude stopped with an error"
 
-The hooks use `curl` to send events to `127.0.0.1:47615` on your machine; if Clawd isn't running, the command exits silently right away and Claude Code is unaffected. Both kinds of alerts can be turned off separately in the same menu.
+**Session list**: the bottom of the usage panel lists your recent Claude Code sessions (up to 5). Each row shows the project name, its current state (💭 thinking / ⚙️ running a command: npm test / ⚙️ editing: App.tsx / 🙋 needs approval / 💬 waiting for you / ✅ done / ⚠️ error) and how long it has been going, updated every second while the panel is open.
+
+All hooks run in the background (`async`), so they never slow Claude Code down. They use `curl` to send events to `127.0.0.1:47615` on your machine; if Clawd isn't running, the command exits silently right away. Each kind of alert can be turned off in the same menu. If you connected an older version of Clawd, it adds the new hooks automatically on launch.
 
 ### Quota forecast and break reminders
 
