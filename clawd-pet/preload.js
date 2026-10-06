@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('pet', {
   setIgnore: (ignore) => ipcRenderer.send('set-ignore', ignore),
   hiddenDone: () => ipcRenderer.send('hidden-done'),
   onUsage: (cb) => ipcRenderer.on('usage', (_e, u) => cb(u)),
+  onClaude: (cb) => ipcRenderer.on('cc', (_e, ev) => cb(ev)),   // Claude Code hooks 事件
   requestUsage: () => ipcRenderer.send('request-usage'),
   setClinging: (v) => ipcRenderer.send('clinging', v),
 });

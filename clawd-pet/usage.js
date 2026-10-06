@@ -95,6 +95,24 @@ function parseUsage(text, now) {
 }
 
 let limitsCache = null, limitsError = null, fetching = null;
+
+// 用完时间预测:记录每次查到的 5 小时额度,按最近 10~90 分钟内的增长速度推算还能撑多久
+const samples = [];   // { t, used, resetsAt }
+function recordSample(w, now) {
+  if (!w) return;
+  // 换了一个 5 小时窗口(重置时间变了)就重新记
+  if (samples.length && Math.abs(samples[samples.length - 1].resetsAt - w.resetsAt) > 5 * 60e3) samples.length = 0;
+  samples.push({ t: now, used: w.used, resetsAt: w.resetsAt });
+  while (samples.length && now - samples[0].t > 90 * 60e3) samples.shift();
+}
+function etaMinutes(w, now) {
+  if (!w || samples.length < 2) return null;
+  const last = samples[samples.length - 1];
+  const first = samples.find(x => last.t - x.t >= 10 * 60e3) ? samples[0] : null;
+  if (!first || last.used <= first.used) return null;            // 时间太短或没在涨:不预测
+  const perMin = (last.used - first.used) / ((last.t - first.t) / 60e3);
+  return Math.max(0, Math.round((100 - w.used) / perMin));
+}
 function fetchLimits() {
   if (fetching) return fetching;
   const bin = findClaude();
@@ -105,7 +123,7 @@ function fetchLimits() {
       (err, stdout) => {
         fetching = null;
         const parsed = !err && stdout ? parseUsage(stdout, Date.now()) : null;
-        if (parsed) { limitsCache = parsed; limitsError = null; }
+        if (parsed) { limitsCache = parsed; limitsError = null; recordSample(parsed.fiveHour, parsed.savedAt); }
         else limitsError = err ? '查询失败' : '没有订阅额度信息(可能在用 API Key)';
         resolve(limitsCache);
       });
@@ -116,7 +134,8 @@ function currentLimits(now) {
   if (!limitsCache) return null;
   // 已经过了重置时间的窗口作废(等下次查询刷新)
   const alive = (w) => (w && (!w.resetsAt || w.resetsAt > now) ? w : null);
-  return { ...limitsCache, fiveHour: alive(limitsCache.fiveHour), sevenDay: alive(limitsCache.sevenDay) };
+  const five = alive(limitsCache.fiveHour);
+  return { ...limitsCache, fiveHour: five && { ...five, etaMin: etaMinutes(five, now) }, sevenDay: alive(limitsCache.sevenDay) };
 }
 
 function projectDirs() {
@@ -242,11 +261,17 @@ class UsageTracker {
     }
 
     const lastActive = this.entries.length ? this.entries[this.entries.length - 1].t : null;
-    return { today: sum(today), week: sum(week), block: current, byModel, lastActive, limits: currentLimits(now), limitsError, updatedAt: now };
+    // 连续使用:从最近一条往前找,中间没有超过 10 分钟的空档就算同一段(给休息提醒用)
+    let streakStart = null;
+    if (lastActive && now - lastActive < 10 * 60e3) {
+      streakStart = lastActive;
+      for (let i = this.entries.length - 2; i >= 0 && streakStart - this.entries[i].t < 10 * 60e3; i--) streakStart = this.entries[i].t;
+    }
+    return { today: sum(today), week: sum(week), block: current, byModel, lastActive, streakStart, limits: currentLimits(now), limitsError, updatedAt: now };
   }
 }
 
-module.exports = { UsageTracker, fetchLimits, parseUsage };
+module.exports = { UsageTracker, fetchLimits, parseUsage, _eta: { recordSample, etaMinutes } };   // _eta 只给自测用
 
 // 命令行自测:node usage.js
 if (require.main === module) {
