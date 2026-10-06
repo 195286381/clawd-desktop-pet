@@ -5,4 +5,6 @@ contextBridge.exposeInMainWorld('pet', {
   onCommand: (cb) => ipcRenderer.on('cmd', (_e, c) => cb(c)),
   setIgnore: (ignore) => ipcRenderer.send('set-ignore', ignore),
   hiddenDone: () => ipcRenderer.send('hidden-done'),
+  onUsage: (cb) => ipcRenderer.on('usage', (_e, u) => cb(u)),
+  requestUsage: () => ipcRenderer.send('request-usage'),
 });

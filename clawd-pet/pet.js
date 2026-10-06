@@ -101,6 +101,12 @@ const legs = REST_X.map(() => {
   return m;
 });
 
+// 汗珠:用量多的时候从额头侧边滑下来
+const sweatMat = new THREE.MeshStandardMaterial({ color: 0x8fd3ff, roughness: 0.1, transparent: true, opacity: 0 });
+const sweat = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), sweatMat);
+sweat.scale.set(0.09, 0.13, 0.06);
+bodyG.add(sweat);
+
 // ---------------- 弹簧 ----------------
 class Spring {
   constructor(x, freq, zeta) { this.x = x; this.v = 0; this.w = 2 * Math.PI * freq; this.z = zeta; }
@@ -132,6 +138,69 @@ const STEP_T = 0.17, STEP_H = 0.16;
 const cursor = { x: -9999, y: -9999, at: -10 };
 let wander = true;
 
+// ---------------- 用量 & 心情 ----------------
+// 心情由当前 5 小时窗口的估算花费(美元)决定:低于 MOOD_BUSY 精神饱满,超过 MOOD_TIRED 就累了
+const MOOD_BUSY = 8, MOOD_TIRED = 25;
+const MOOD_NAME = ['精神饱满', '有点忙', '累了'];
+let usage = null, mood = 0;
+
+const bubble = document.getElementById('bubble');
+const nowSec = () => performance.now() / 1000;
+let bubbleUntil = 0, bubbleKind = null;
+function say(html, secs, kind = 'say') {
+  bubble.innerHTML = html;
+  bubble.classList.add('show');
+  bubbleUntil = nowSec() + secs;
+  bubbleKind = kind;
+}
+function hideBubble() { bubble.classList.remove('show'); bubbleKind = null; }
+
+const fmtCost = c => '$' + (c >= 100 ? c.toFixed(0) : c.toFixed(2));
+function fmtTokens(n) {
+  if (n >= 1e8) return (n / 1e8).toFixed(2) + ' 亿';
+  if (n >= 1e4) return Math.round(n / 1e4) + ' 万';
+  return String(n);
+}
+function usageHtml(u) {
+  if (!u) return '<div class="title">正在统计用量…</div>';
+  if (!u.week.messages) return '<div class="title">最近 7 天还没用过 Claude Code</div>';
+  const row = (k, v, note) => `<div class="row"><span>${k}</span><b>${v}</b><i>${note}</i></div>`;
+  let html = '<div class="title">Claude Code 用量</div>';
+  html += row('今天', fmtCost(u.today.cost), fmtTokens(u.today.tokens) + ' tokens');
+  if (u.block) {
+    const h = Math.floor(u.block.remainingMin / 60), m = u.block.remainingMin % 60;
+    html += row('5 小时窗口', fmtCost(u.block.cost), `还剩 ${h ? h + ' 小时 ' : ''}${m} 分`);
+  } else {
+    html += row('5 小时窗口', '—', '当前没有进行中的窗口');
+  }
+  html += row('近 7 天', fmtCost(u.week.cost), fmtTokens(u.week.tokens) + ' tokens');
+  const models = Object.entries(u.byModel).sort((a, b) => b[1].cost - a[1].cost);
+  if (models.length && u.today.cost > 0) {
+    html += '<div class="models">' + models.slice(0, 3)
+      .map(([k, v]) => `${k} ${Math.round(v.cost / u.today.cost * 100)}%`).join(' · ') + '</div>';
+  }
+  html += `<div class="foot">按 API 价格估算 · Clawd 现在${MOOD_NAME[mood]}</div>`;
+  return html;
+}
+function showUsage() {
+  window.pet?.requestUsage();
+  say(usageHtml(usage), 8, 'usage');
+}
+
+let usageInit = false;
+window.pet?.onUsage(u => {
+  usage = u;
+  const c = u.block ? u.block.cost : 0;
+  const m = c >= MOOD_TIRED ? 2 : c >= MOOD_BUSY ? 1 : 0;
+  // 心情变差时主动冒一句(启动时的第一次不算)
+  if (usageInit && m > mood && !paused && bubbleKind !== 'usage') {
+    say(m === 2 ? '这 5 小时用得好凶…有点累了 💦' : '忙起来啦 💦', 4);
+  }
+  mood = m;
+  usageInit = true;
+  if (bubbleKind === 'usage') bubble.innerHTML = usageHtml(usage);   // 气泡开着时实时刷新
+});
+
 // ---------------- 行为 ----------------
 let action = { type: 'rest', t: 0, dur: 1.5 };
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -139,6 +208,14 @@ const rand = (a, b) => a + Math.random() * (b - a);
 function pickAction() {
   if (!wander) return { type: 'rest', dur: 3 };
   const r = Math.random();
+  if (mood === 2) {
+    // 累了:少走动,不蹦不跳,常趴下打盹
+    if (r < 0.3) return pickWalk();
+    if (r < 0.62) return { type: 'flop', dur: rand(4, 8) };
+    if (r < 0.72) return { type: 'lean', dir: Math.random() < 0.5 ? -1 : 1, dur: 2.2 };
+    return { type: 'rest', dur: rand(3, 6) };
+  }
+  if (mood === 1 && r >= 0.62 && r < 0.72) return { type: 'flop', dur: rand(3, 5) };   // 忙的时候偶尔歇一会
   if (r < 0.42) {
     let tx, n = 0;
     do { tx = rand(minX(), maxX()); } while (Math.abs(tx - st.x) < 2.5 && ++n < 20);
@@ -158,6 +235,7 @@ window.pet?.onCommand(cmd => {
   if (cmd === 'minimize') {
     if (press) { press = null; canvas.classList.remove('dragging'); }
     setAction({ type: 'leave' });
+    hideBubble();
     return;
   }
   if (cmd === 'restore') {
@@ -177,6 +255,7 @@ window.pet?.onCommand(cmd => {
   if (cmd === 'wander-off') { wander = false; setAction({ type: 'rest', dur: 2 }); return; }
   if (cmd === 'home') { setAction({ type: 'walk', target: Wpx / S / 2 }); return; }
   if (cmd === 'walk') { setAction(pickWalk()); return; }
+  if (cmd === 'usage') { showUsage(); setAction({ type: 'present', dur: 2.4 }); return; }
   if (cmd === 'jump') setAction({ type: 'jump', dir: Math.random() < 0.5 ? -1 : 1 });
   if (cmd === 'wave') setAction({ type: 'wave', dur: 2.4 });
   if (cmd === 'dance') setAction({ type: 'dance', dur: 4 });
@@ -248,8 +327,13 @@ function release() {
     st.air = st.y > 0.001 || st.vy > 0;
     setAction({ type: 'fall' });
   } else {
-    const r = Math.random();
-    setAction(r < 0.45 ? { type: 'jump', dir: 0, big: true } : r < 0.75 ? { type: 'wave', dur: 2.2 } : { type: 'dance', dur: 3 });
+    if (bubbleKind === 'usage') {
+      hideBubble();
+      setAction(mood === 2 ? { type: 'wave', dur: 1.6 } : { type: 'jump', dir: 0, big: true });
+    } else {
+      showUsage();
+      setAction({ type: 'present', dur: 2.4 });
+    }
   }
   press = null;
 }
@@ -264,6 +348,7 @@ const clock = new THREE.Clock();
 let nextBlink = 2, blinkT = -1, blinkN = 0;
 let idleLook = 0, nextIdleLook = 3;
 let landKick = 0;
+let sweatT = -1, nextSweat = 3;
 const tmp = new THREE.Vector3();
 
 function frame() {
@@ -273,9 +358,11 @@ function frame() {
   const a = action, p = a.t;
 
   // ---- 1. 当前动作给出"目标姿态" ----
-  let bx = 0, by = Math.sin(t * 2.3) * 0.012, rz = 0, squash = 1 + Math.sin(t * 2.3) * 0.012;
-  let armRot = [0, 0], armDrop = [0, 0];
-  let look = null, eyeOpen = 1, walkDir = 0;
+  // 累的时候呼吸更慢更深、眼睛半闭
+  const br = mood === 2 ? Math.sin(t * 1.4) * 0.03 : Math.sin(t * 2.3) * 0.012;
+  let bx = 0, by = br, rz = 0, squash = 1 + br;
+  let armRot = [0, 0], armDrop = mood === 2 ? [0.05, 0.05] : [0, 0];
+  let look = null, eyeOpen = mood === 2 ? 0.55 : 1, walkDir = 0;
   let footLift = null;                      // 跳舞时直接指定抬脚高度
   let airKick = 0;                          // 被拎起来时的蹬腿幅度
 
@@ -287,7 +374,8 @@ function frame() {
   else if (a.type === 'walk') {
     const dx = a.target - st.x;
     walkDir = Math.sign(dx);
-    const v = walkDir * Math.min(2.3, Math.abs(dx) * 2.2 + 0.25);   // 起步、到站自然减速
+    const vmax = 2.3 * [1, 0.85, 0.55][mood];                       // 累了走得慢
+    const v = walkDir * Math.min(vmax, Math.abs(dx) * 2.2 + 0.25);  // 起步、到站自然减速
     st.vx = v;
     st.x += v * dt;
     rz = -v * 0.022;                                                // 往前进方向倾
@@ -367,6 +455,21 @@ function frame() {
     airKick = 1;
     st.vx *= Math.pow(0.02, dt);       // 鼠标停住时速度慢慢归零,腿就会垂下来
     look = 0;
+  }
+
+  else if (a.type === 'present') {
+    // 双手举起"递上"用量卡片,看着你
+    armRot = [0.9 + Math.sin(p * 8) * 0.08, 0.9 + Math.sin(p * 8 + 1) * 0.08];
+    by = 0.06; look = 0; eyeOpen = Math.max(eyeOpen, 0.8);
+    if (p > a.dur) finish();
+  }
+
+  else if (a.type === 'flop') {
+    // 趴下打盹:身体沉下去(脚不动,腿被压短),眼睛闭上,手耷拉着,呼吸起伏
+    by = -LEG_L * 0.5 + Math.sin(t * 1.2) * 0.025;
+    squash = 0.95; eyeOpen = 0.06; armRot = [-0.28, -0.28]; look = 0;
+    if (p > 0.8 && !a.said && bubbleKind === null) { a.said = true; say('Zzz…', Math.min(3, a.dur - 1)); }
+    if (p > a.dur) finish();
   }
 
   else if (a.type === 'leave') {
@@ -532,6 +635,27 @@ function frame() {
   canvasLeft = Math.round(st.x * S - CW / 2);
   canvasTop = Math.round(Hpx - st.y * S - (CH - GROUND_PX));
   canvas.style.transform = `translate(${canvasLeft}px, ${canvasTop}px)`;
+
+  // ---- 8. 汗珠:忙时偶尔、累时经常从额头侧边滑下来 ----
+  if (mood > 0 && sweatT < 0 && t > nextSweat && a.type !== 'drag') sweatT = t;
+  if (sweatT >= 0) {
+    const k = (t - sweatT) / 1.1;
+    sweat.position.set(BW / 2 - 0.28, BH * 0.92 - k * 0.5, BD / 2 + 0.04);
+    sweatMat.opacity = k < 0.15 ? k / 0.15 : Math.max(0, 1 - (k - 0.15) / 0.85);
+    if (k >= 1) { sweatT = -1; sweatMat.opacity = 0; nextSweat = t + (mood === 2 ? rand(2, 4) : rand(5, 9)); }
+  }
+
+  // ---- 9. 头顶气泡跟着 Clawd 走,不超出屏幕 ----
+  if (bubbleKind && nowSec() > bubbleUntil) hideBubble();
+  if (bubbleKind) {
+    const bw = bubble.offsetWidth, bh = bubble.offsetHeight;
+    const px = st.x * S;
+    const headY = Hpx - (st.y + LEG_L + BY + BH * Q + 0.2) * S;
+    const left = Math.round(Math.min(Wpx - bw - 8, Math.max(8, px - bw / 2)));
+    const top = Math.round(Math.max(8, headY - bh - 14));
+    bubble.style.transform = `translate(${left}px, ${top}px)`;
+    bubble.style.setProperty('--tail', `${Math.min(bw - 18, Math.max(18, px - left))}px`);
+  }
 
   renderer.render(scene, camera);
 }

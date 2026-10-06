@@ -4,6 +4,7 @@
 // 菜单栏和 Dock 里都常驻一个图标:可以把 Clawd "收起来"(最小化),再点一下放出来。
 const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
+const { UsageTracker } = require('./usage');
 
 app.setName('Clawd');
 
@@ -17,6 +18,15 @@ let hidden = false;     // Clawd 是否被收起
 let wander = true;      // 是否自由活动
 
 const workArea = () => screen.getPrimaryDisplay().workArea;
+// ---------- 用量:每 30 秒增量扫描一次 Claude Code 的本地会话记录 ----------
+const tracker = new UsageTracker();
+function pushUsage() {
+  if (!win || win.isDestroyed()) return;
+  try { tracker.scan(); win.webContents.send('usage', tracker.summary()); } catch (e) { console.error('用量统计失败', e); }
+}
+ipcMain.on('request-usage', pushUsage);
+setInterval(pushUsage, 30000);
+
 const send = (cmd) => { if (win && !win.isDestroyed()) win.webContents.send('cmd', cmd); };
 
 function createWindow() {
@@ -47,6 +57,7 @@ function createWindow() {
   win.setIgnoreMouseEvents(true);
   win.loadFile('index.html');
   win.once('ready-to-show', () => win.showInactive());
+  win.webContents.on('did-finish-load', pushUsage);
 
   // 持续把光标位置(窗口坐标)发给渲染进程:用于眼睛跟随,以及判断光标是否在 Clawd 身上
   const timer = setInterval(() => {
@@ -92,6 +103,7 @@ const act = (cmd) => () => { if (hidden) restore(); send(cmd); };
 function menuTemplate({ forDock = false } = {}) {
   const items = [
     { label: hidden ? '放出 Clawd' : '收起 Clawd', click: toggle },
+    { label: '查看用量', click: () => { pushUsage(); act('usage')(); } },
     { type: 'separator' },
     { label: '跳一下', click: act('jump') },
     { label: '打招呼', click: act('wave') },
@@ -132,8 +144,12 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
 
-  // 开发自测:CLAWD_SELFTEST=1 npm start —— 4 秒后收起,8 秒后放出
-  if (!app.isPackaged && process.env.CLAWD_SELFTEST) {
+  // 开发自测(只在 npm start 时生效):
+  //   CLAWD_SELFTEST=1     —— 4 秒后收起,8 秒后放出
+  //   CLAWD_SELFTEST=usage —— 3 秒后弹出用量气泡
+  const selftest = !app.isPackaged && process.env.CLAWD_SELFTEST;
+  if (selftest === 'usage') setTimeout(() => { pushUsage(); send('usage'); }, 3000);
+  else if (selftest) {
     setTimeout(minimize, 4000);
     setTimeout(restore, 8000);
   }

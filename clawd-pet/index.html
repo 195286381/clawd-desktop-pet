@@ -9,10 +9,29 @@
     -webkit-user-select: none; user-select: none; }
   #c { position: absolute; left: 0; top: 0; will-change: transform; cursor: grab; }
   #c.dragging { cursor: grabbing; }
+
+  /* 头顶气泡 */
+  #bubble { position: absolute; left: 0; top: 0; max-width: 300px; padding: 10px 14px 9px;
+    background: #FFFCF6; color: #3D3929; border: 1px solid #E8DFD0; border-radius: 14px;
+    box-shadow: 0 6px 20px rgba(60, 40, 20, .18); pointer-events: none; opacity: 0;
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    transition: opacity .2s; --tail: 50%; white-space: nowrap; }
+  #bubble.show { opacity: 1; }
+  #bubble::after { content: ""; position: absolute; bottom: -7px; left: calc(var(--tail) - 7px);
+    width: 12px; height: 12px; background: #FFFCF6; border-right: 1px solid #E8DFD0;
+    border-bottom: 1px solid #E8DFD0; transform: rotate(45deg); }
+  #bubble .title { font-weight: 600; color: #C15F3C; margin-bottom: 4px; }
+  #bubble .row { display: grid; grid-template-columns: 76px auto 1fr; gap: 8px; align-items: baseline; }
+  #bubble .row span { color: #8A8470; }
+  #bubble .row b { font-variant-numeric: tabular-nums; }
+  #bubble .row i { font-style: normal; color: #8A8470; font-size: 12px; text-align: right; }
+  #bubble .models { margin-top: 4px; font-size: 12px; color: #6B6556; }
+  #bubble .foot { margin-top: 4px; font-size: 11px; color: #A39E90; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="bubble"></div>
 <script type="importmap">
 { "imports": {
   "three": "./node_modules/three/build/three.module.js",
