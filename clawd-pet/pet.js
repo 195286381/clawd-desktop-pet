@@ -1123,8 +1123,8 @@ function frame() {
     const bx = isClinging() ? (action.side > 0 ? an.left - bw - 10 : an.right + 10) : an.x - bw / 2;
     const by = isClinging() ? an.midY - bh / 2 : an.top - bh - 8;
     badge.style.transform = `translate(${Math.round(Math.min(Wpx - bw - 8, Math.max(8, bx)))}px, ${Math.round(Math.min(Hpx - bh - 8, Math.max(8, by)))}px)`;
-  } else if (badge.className) {
-    badge.className = '';
+  } else if (badge.classList.contains('show')) {
+    badge.classList.remove('show');   // 只去掉 show,保留竖排等样式,淡出时不会从竖条跳成横条
   }
 
   chatter();
