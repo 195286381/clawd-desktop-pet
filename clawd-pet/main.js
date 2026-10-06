@@ -34,6 +34,12 @@ function pushUsage() {
       sum.limits = { fiveHour: { used: 100 - rem, remaining: rem, resetsAt: Date.now() + 90 * 60000 },
         sevenDay: (sum.limits && sum.limits.sevenDay) || null, others: [], savedAt: Date.now() };
     }
+    // 开发自测:CLAWD_FAKE_WEEK=30 —— 假装本周额度只剩 30%
+    const fakeWeek = app.isPackaged ? NaN : Number((process.env.CLAWD_FAKE_WEEK || '').trim() || NaN);
+    if (Number.isFinite(fakeWeek)) {
+      sum.limits = { fiveHour: null, others: [], ...(sum.limits || {}), savedAt: Date.now(),
+        sevenDay: { used: 100 - fakeWeek, remaining: fakeWeek, resetsAt: Date.now() + 2 * 864e5 } };
+    }
     win.webContents.send('usage', sum);
   } catch (e) { console.error('用量统计失败', e); }
 }

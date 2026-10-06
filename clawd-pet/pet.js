@@ -73,7 +73,7 @@ const root = new THREE.Group();          // 脚底中心;在世界里移动
 scene.add(root);
 const bodyG = new THREE.Group();         // 原点在身体底面中心:挤压/倾斜都以底面为轴
 root.add(bodyG);
-box(bodyG, orange, [0, BH / 2, 0], [BW, BH, BD], 0.06);
+const bodyMesh = box(bodyG, orange, [0, BH / 2, 0], [BW, BH, BD], 0.06);
 
 const eyes = [-1, 1].map(s => {
   const g = new THREE.Group();
@@ -146,6 +146,7 @@ const LEVEL_BUSY = 50, LEVEL_TIRED = 20, LEVEL_LOW = 10;
 const MOOD_BUSY = 8, MOOD_TIRED = 25;
 const MOOD_NAME = ['精神饱满', '有点忙', '累了', '快没电了', '额度用完了'];
 let usage = null, mood = 0;
+const levelOf = r => (r <= 0 ? 4 : r < LEVEL_LOW ? 3 : r < LEVEL_TIRED ? 2 : r < LEVEL_BUSY ? 1 : 0);
 let quota = null;   // 当前最紧张的那个额度窗口:{ label, rem, resetsAt }
 function moodFrom(u) {
   const L = u.limits;
@@ -153,8 +154,7 @@ function moodFrom(u) {
   if (wins.length) {
     const [label, w] = wins.reduce((a, b) => (b[1].remaining < a[1].remaining ? b : a));
     quota = { label, rem: w.remaining, resetsAt: w.resetsAt };
-    const r = w.remaining;
-    return r <= 0 ? 4 : r < LEVEL_LOW ? 3 : r < LEVEL_TIRED ? 2 : r < LEVEL_BUSY ? 1 : 0;
+    return levelOf(w.remaining);
   }
   quota = null;
   const c = u.block ? u.block.cost : 0;
@@ -201,9 +201,8 @@ function usageHtml(u) {
     const bar = (label, w) => {
       if (!w) return '';
       const left = Math.round(w.remaining);
-      const cls = left <= 20 ? 'low' : left <= 50 ? 'mid' : '';
-      return `<div class="quota ${cls}"><div class="qhead"><span>${label}</span><b>剩 ${left}%</b><i>${fmtReset(w.resetsAt)}</i></div>`
-        + `<div class="qbar"><div style="width:${Math.min(100, w.used)}%"></div></div></div>`;
+      return `<div class="quota lv${levelOf(w.remaining)}"><div class="qhead"><span>${label}</span><b>剩 ${left}%</b><i>${fmtReset(w.resetsAt)}</i></div>`
+        + `<div class="qbar"><div style="width:${Math.max(0, Math.min(100, w.remaining))}%"></div></div></div>`;
     };
     html += bar('5 小时额度', L.fiveHour) + bar('本周额度', L.sevenDay);
     const ago = Math.round((Date.now() - L.savedAt) / 60000);
@@ -263,6 +262,50 @@ window.pet?.onUsage(u => {
   usageInit = true;
   if (bubbleKind === 'usage') bubble.innerHTML = usageHtml(usage);   // 气泡开着时实时刷新
 });
+
+// ---------------- 自言自语 ----------------
+// 闲着的时候每隔 40~100 秒随机冒一句,内容看时间、额度、是不是贴在墙上、你最近用得猛不猛。
+// 额度用完(睡着)、被拖着、气泡开着时不说话。
+const CHAT = {
+  any: ['哼哼哼～ ♪', '（伸了个懒腰）', '在想下一个 bug 藏在哪…', '要不要喝口水？💧', '我是螃蟹吗？🦀 不是哦', 'commit 了吗？',
+    '(・ω・)', '今天也要好好写代码 ✨', '戳戳我试试？', '偷偷告诉你，我会跳舞', '测试都跑过了吗？', '休息一下眼睛吧 👀'],
+  night: ['这么晚还不睡？🌙', '夜深了，早点休息哦', '熬夜会掉头发的…'],
+  morning: ['早上好 ☀️', '今天也元气满满！', '来杯咖啡吗？☕'],
+  lunch: ['该吃午饭啦 🍱', '饿了…'],
+  evening: ['快下班了吧？', '今天辛苦啦 🌇'],
+  busy: ['有点忙，但还撑得住 💪', '你的手速好快…', '冲冲冲！'],
+  tired: ['好累…', '能歇会儿吗…', '我…还能…再跑一会…'],
+  low: ['电量告急 🪫', '要省着点用哦', '快…快没电了…'],
+  cling: ['偷偷看着你 👀', '墙边好凉快', '我藏好了吗？', '嘘——'],
+  active: ['你又在用 Claude Code 啦', '写得好快！', '这段代码看起来不错哦'],
+  idle: ['好久没理我了…', '在忙别的吗？', '无聊…'],
+};
+let nextChat = nowSec() + 15 + Math.random() * 15, lastChat = '';   // rand() 在后面才定义,这里直接用 Math.random
+function chatter(force = false) {
+  const now = nowSec();
+  if (!force && now < nextChat) return;
+  nextChat = now + rand(40, 100);
+  if (paused || bubbleKind || mood === 4 || ['drag', 'leave', 'sleep', 'fall'].includes(action.type)) return;
+  const h = new Date().getHours();
+  const pools = [CHAT.any];
+  if (h < 5 || h >= 23) pools.push(CHAT.night, CHAT.night);
+  else if (h < 10) pools.push(CHAT.morning);
+  else if (h >= 11 && h < 13) pools.push(CHAT.lunch);
+  else if (h >= 17 && h < 20) pools.push(CHAT.evening);
+  if (mood === 1) pools.push(CHAT.busy);
+  if (mood === 2) pools.push(CHAT.tired, CHAT.tired);
+  if (mood === 3) pools.push(CHAT.low, CHAT.low);
+  if (isClinging()) pools.push(CHAT.cling, CHAT.cling);
+  const since = usage && usage.lastActive ? Date.now() - usage.lastActive : Infinity;
+  if (since < 3 * 60e3) pools.push(CHAT.active);
+  else if (since > 60 * 60e3 && since < Infinity) pools.push(CHAT.idle);
+  if (usage && usage.today.cost >= 20) pools.push([`今天已经烧了 ${fmtCost(usage.today.cost)} 的 token 啦 🔥`]);
+  let line;
+  for (let i = 0; i < 5 && (!line || line === lastChat); i++) { const pool = pools[Math.floor(Math.random() * pools.length)]; line = pool[Math.floor(Math.random() * pool.length)]; }
+  lastChat = line;
+  say(line, 3.5, 'chat');
+  if (!isClinging() && action.type !== 'walk' && Math.random() < 0.3) setAction({ type: 'wave', dur: 1.2 });
+}
 
 // ---------------- 贴边 ----------------
 // Clawd 侧过身扒在屏幕左/右边缘,大半个身子藏在屏幕外,只露出眼睛偷看;不走动、不挡东西。
@@ -361,6 +404,7 @@ window.pet?.onCommand(cmd => {
     setAction({ type: 'fall', wantCling: true });
     return;
   }
+  if (cmd === 'chat') { chatter(true); return; }
   if (cmd === 'usage') { showUsage(); if (!isClinging()) setAction({ type: 'present', dur: 2.4 }); return; }
   if (cmd === 'jump') setAction({ type: 'jump', dir: Math.random() < 0.5 ? -1 : 1 });
   if (cmd === 'wave') setAction({ type: 'wave', dur: 2.4 });
@@ -501,10 +545,26 @@ let nextBlink = 2, blinkT = -1, blinkN = 0;
 let idleLook = 0, nextIdleLook = 3;
 let landKick = 0;
 let sweatT = -1, nextSweat = 3;
-const BASE_COLOR = new THREE.Color(0xD97757), GREY = new THREE.Color(0x8E8A86);
-let tintK = 0;
+// 每档的身体颜色:越累越暗淡,额度用完时变成灰色(直接混灰会发脏)
+const BODY_COLOR = [0xD97757, 0xD97757, 0xCB7556, 0xB5735F, 0x9A9894].map(c => new THREE.Color(c));
 const badge = document.getElementById('badge');
 const tmp = new THREE.Vector3();
+// Clawd 身体在屏幕上的可见范围(把身体包围盒投影到屏幕上;贴边时只算露出来的那部分)。
+// 血条和气泡都挂在它的顶边中点上,不管是站着还是转过来趴在墙上都对得上。
+const bodyBox = new THREE.Box3(), corner = new THREE.Vector3();
+function petAnchor() {
+  root.updateMatrixWorld(true);
+  camera.updateMatrixWorld();
+  bodyBox.setFromObject(bodyMesh);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i < 8; i++) {
+    corner.set(i & 1 ? bodyBox.max.x : bodyBox.min.x, i & 2 ? bodyBox.max.y : bodyBox.min.y, i & 4 ? bodyBox.max.z : bodyBox.min.z).project(camera);
+    const sx = canvasLeft + (corner.x + 1) / 2 * CW, sy = canvasTop + (1 - corner.y) / 2 * CH;
+    x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+  }
+  x0 = Math.max(0, x0); x1 = Math.min(Wpx, x1);
+  return { x: (x0 + x1) / 2, top: y0, left: x0, right: x1, midY: (y0 + y1) / 2 };
+}
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 1 / 30);
@@ -836,33 +896,43 @@ function frame() {
     if (k >= 1) { sweatT = -1; sweatMat.opacity = 0; nextSweat = t + [0, rand(5, 9), rand(2, 4), rand(1, 2.5), 99][mood]; }
   }
 
-  // ---- 9. 额度越少,身体颜色越灰暗 ----
-  const fade = [0, 0, 0.08, 0.35, 0.6][mood];
-  tintK += (fade - tintK) * Math.min(1, dt * 2);
-  orange.color.copy(BASE_COLOR).lerp(GREY, tintK);
+  // ---- 9. 身体颜色随档位渐变 ----
+  orange.color.lerp(BODY_COLOR[mood], Math.min(1, dt * 2));
 
-  // ---- 10. 头顶电量标:剩余 ≤20% 时常驻(气泡开着时让位) ----
-  if (quota && mood >= 2 && !bubbleKind && !paused) {
-    const r = Math.max(0, Math.round(quota.rem));
-    const text = mood === 4 ? `🪫 0% · ${fmtReset(quota.resetsAt).replace('重置', '恢复')}` : `${mood === 3 ? '🪫' : '🔋'} ${r}%`;
-    if (badge.textContent !== text) badge.textContent = text;
-    badge.className = 'show lv' + mood;
-    const bw = badge.offsetWidth, bh = badge.offsetHeight;
-    const px = isClinging() ? (action.side < 0 ? 90 : Wpx - 90) : st.x * S;
-    const headY = isClinging() ? Hpx - (st.y + BW / 2 + 0.2) * S : Hpx - (st.y + LEG_L + BY + BH * Q + 0.15) * S;
-    badge.style.transform = `translate(${Math.round(Math.min(Wpx - bw - 8, Math.max(8, px - bw / 2)))}px, ${Math.round(Math.max(8, headY - bh - 6))}px)`;
+  // ---- 10. 头顶血条:格子 = 5 小时额度,旁边的小圆环 = 本周额度。有额度数据就常驻(气泡开着时让位) ----
+  const L = usage && usage.limits;
+  if (L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused) {
+    const r = Math.max(0, Math.round(L.fiveHour ? L.fiveHour.remaining : 100));   // 5 小时窗口过期 = 已重置,满格
+    const hl = levelOf(r), cells = Math.min(10, Math.ceil(r / 10));
+    const vert = isClinging();
+    const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt).replace('重置', '恢复')}` : hl >= 2 ? `${r}%` : '';
+    const wk = L.sevenDay ? Math.max(0, Math.min(100, Math.round(L.sevenDay.remaining))) : null;
+    const key = `${hl}|${cells}|${text}|${vert}|${wk}`;
+    if (badge.dataset.key !== key) {
+      badge.dataset.key = key;
+      badge.innerHTML = '<div class="hp">' + Array.from({ length: 10 }, (_, i) => `<i${i < cells ? ' class="on"' : ''}></i>`).join('') + '</div>'
+        + (!text ? '' : vert ? `<b><span>${r}</span><span>%</span></b>` : `<b>${text}</b>`)
+        + (wk === null ? '' : `<svg class="ring lv${levelOf(wk)}" viewBox="0 0 16 16"><circle class="track" cx="8" cy="8" r="6"/>`
+          + `<circle class="arc" cx="8" cy="8" r="6" pathLength="100" stroke-dasharray="${wk} 100" transform="rotate(-90 8 8)"/></svg>`);
+    }
+    badge.className = 'show lv' + hl + (vert ? ' vert' : '');
+    const bw = badge.offsetWidth, bh = badge.offsetHeight, an = petAnchor();
+    // 站着:挂在头顶;贴边:露出来的身体太窄,挂到身体朝屏幕里的那一侧
+    const bx = isClinging() ? (action.side > 0 ? an.left - bw - 10 : an.right + 10) : an.x - bw / 2;
+    const by = isClinging() ? an.midY - bh / 2 : an.top - bh - 8;
+    badge.style.transform = `translate(${Math.round(Math.min(Wpx - bw - 8, Math.max(8, bx)))}px, ${Math.round(Math.min(Hpx - bh - 8, Math.max(8, by)))}px)`;
   } else if (badge.className) {
     badge.className = '';
   }
 
+  chatter();
+
   // ---- 11. 头顶气泡跟着 Clawd 走,不超出屏幕 ----
   if (bubbleKind && nowSec() > bubbleUntil) hideBubble();
   if (bubbleKind) {
-    const bw = bubble.offsetWidth, bh = bubble.offsetHeight;
-    const px = isClinging() ? (action.side < 0 ? 90 : Wpx - 90) : st.x * S;
-    const headY = isClinging() ? Hpx - (st.y + BW / 2 + 0.3) * S : Hpx - (st.y + LEG_L + BY + BH * Q + 0.2) * S;
+    const bw = bubble.offsetWidth, bh = bubble.offsetHeight, an = petAnchor(), px = an.x;
     const left = Math.round(Math.min(Wpx - bw - 8, Math.max(8, px - bw / 2)));
-    const top = Math.round(Math.max(8, headY - bh - 14));
+    const top = Math.round(Math.max(8, an.top - bh - 14));
     bubble.style.transform = `translate(${left}px, ${top}px)`;
     bubble.style.setProperty('--tail', `${Math.min(bw - 18, Math.max(18, px - left))}px`);
   }
