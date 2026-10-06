@@ -10,9 +10,11 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 // ---------------- 画布与相机 ----------------
-const S = 40;                      // 1 个世界单位 = 40 屏幕像素
-const CW = 340, CH = 340;          // 跟着 Clawd 走的小画布
-const GROUND_PX = 70;              // Clawd 脚底在画布里离底边的距离
+// 大小:菜单里选,主进程通过 ?scale= 传进来;只缩放 3D 的 Clawd,气泡和血条的文字保持原大小
+const SCALE = Math.min(2, Math.max(0.5, Number(new URLSearchParams(location.search).get('scale')) || 1));
+const S = 40 * SCALE;              // 1 个世界单位 = 40 屏幕像素(乘以大小)
+const CW = Math.round(340 * SCALE), CH = CW;   // 跟着 Clawd 走的小画布
+const GROUND_PX = 70 * SCALE;      // Clawd 脚底在画布里离底边的距离
 const YAW = 0.34, PITCH = 0.2;     // 略微侧着、俯视一点,露出侧面和顶面
 
 const canvas = document.getElementById('c');
@@ -48,14 +50,16 @@ shadowPlane.rotation.x = -Math.PI / 2;
 shadowPlane.receiveShadow = true;
 scene.add(shadowPlane);
 
-// ---------------- 模型(尺寸取自官方动画的比例) ----------------
-const U = 0.33;                   // 一条腿的宽度
-const BW = 7.7 * U, BH = 4.5 * U, BD = 3.0 * U;
-const LEG_L = 2.1 * U, LEG_W = U;
-const EYE = 0.85 * U;
-const EYE_X = BW / 2 - 1.55 * U, EYE_Y = BH * 0.58;
-const ARM_Y = BH * 0.6, ARM_OUT = 1.0 * U, ARM_H = 1.9 * U, ARM_TUCK = 0.35;
-const REST_X = [0, 1.91, 4.82, 6.73].map(e => -BW / 2 + (e + 0.5) * U);   // 四条腿的 x
+// ---------------- 模型(比例对照官方像素形象和 3D 打印的 Clawd) ----------------
+// 方方正正、厚实的身体;短粗的方块腿(中间两条间距更大);手是扁平长板;眼睛靠外侧
+// 整体大小和上一版持平:宽约 2.5、总高(腿 + 身子)约 2.15 个世界单位
+const BW = 2.5;                                   // 身体宽
+const BH = BW * 0.6, BD = BW * 0.45;              // 高、厚
+const LEG_L = BH * 0.42, LEG_W = BW * 0.15;       // 腿比参考图长一些,走起来更灵动
+const EYE = 0.28;                                 // 眼睛大小、间距、高度都沿用上一版(眼神更灵动)
+const EYE_X = BW / 2 - 0.51, EYE_Y = BH * 0.58;
+const ARM_Y = BH * 0.52, ARM_OUT = BW * 0.13, ARM_H = BH * 0.3, ARM_TUCK = 0.35;
+const REST_X = [0.085, 0.33, 0.67, 0.915].map(f => -BW / 2 + f * BW);   // 四条腿的 x
 const GROUP = [0, 1, 0, 1];       // 交替迈步的两组脚
 
 const orange = new THREE.MeshPhysicalMaterial({ color: 0xD97757, roughness: 0.5, clearcoat: 0.2, clearcoatRoughness: 0.45 });
@@ -73,7 +77,7 @@ const root = new THREE.Group();          // 脚底中心;在世界里移动
 scene.add(root);
 const bodyG = new THREE.Group();         // 原点在身体底面中心:挤压/倾斜都以底面为轴
 root.add(bodyG);
-box(bodyG, orange, [0, BH / 2, 0], [BW, BH, BD], 0.06);
+const bodyMesh = box(bodyG, orange, [0, BH / 2, 0], [BW, BH, BD], 0.03);
 
 const eyes = [-1, 1].map(s => {
   const g = new THREE.Group();
@@ -88,11 +92,11 @@ const arms = [-1, 1].map(s => {
   const g = new THREE.Group();
   g.position.set(s * BW / 2, ARM_Y, 0);
   bodyG.add(g);
-  box(g, orange, [s * (ARM_OUT - ARM_TUCK) / 2, 0, 0], [ARM_OUT + ARM_TUCK, ARM_H, BD * 0.62], 0.05);
+  box(g, orange, [s * (ARM_OUT - ARM_TUCK) / 2, 0, 0], [ARM_OUT + ARM_TUCK, ARM_H, BD * 0.8], 0.025);
   return { g, s };
 });
 
-const legGeo = new RoundedBoxGeometry(LEG_W, 1, LEG_W, 2, 0.03);
+const legGeo = new RoundedBoxGeometry(LEG_W, 1, LEG_W, 2, 0.02);
 legGeo.translate(0, 0.5, 0);             // 底端在原点,沿 +y 伸长
 const legs = REST_X.map(() => {
   const m = new THREE.Mesh(legGeo, orange);
@@ -100,6 +104,128 @@ const legs = REST_X.map(() => {
   root.add(m);
   return m;
 });
+
+// ---------------- 表情 ----------------
+// 像素风:每个表情用小方块拼出来。平时是方眼睛(会眨眼、累了眯眼);
+// 开心 > <、高兴 ^ ^、晕了 x x、吃惊 o o、耍酷戴像素墨镜,
+// 还有被摸时的爱心眼 + 腮红、被连戳的不耐烦、庆祝的星星眼、烧钱的 $ $、额度用完的哭哭、偶尔眨单眼。
+const PX = EYE / 3.6;   // 5 格宽的表情约 1.4 个眼睛宽,眼睛转到最边也离身体边缘有空隙
+const pxGeo = new THREE.BoxGeometry(PX, PX, 0.02);
+const white = new THREE.MeshStandardMaterial({ color: 0xF4EFE6, roughness: 0.4 });
+const flat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45 });
+const FACE_MAT = { X: dark, W: white, R: flat(0xC8453F), G: flat(0xF2C14E), M: flat(0x4E8A5A), B: flat(0x8FD3FF) };
+function pixels(parent, rows, size, geo, mats, z = 0) {
+  const g = new THREE.Group();
+  const w = rows[0].length, h = rows.length;
+  rows.forEach((row, y) => [...row].forEach((c, x) => {
+    if (c === '.') return;
+    const m = new THREE.Mesh(geo, mats[c]);
+    m.position.set((x - (w - 1) / 2) * size, ((h - 1) / 2 - y) * size, z);
+    g.add(m);
+  }));
+  g.visible = false;
+  parent.add(g);
+  return g;
+}
+const mirror = rows => rows.map(r => [...r].reverse().join(''));
+// 每个表情给左眼的像素图(右眼自动镜像);写成 { L, R } 时左右分开给,null 表示那只眼保持普通方眼
+const FACES = {
+  happy:     ['X..', '.X.', '..X', '.X.', 'X..'],            // 左眼 >,右眼镜像成 <
+  joy:       ['..X..', '.X.X.', 'X...X'],
+  dizzy:     ['X...X', '.X.X.', '..X..', '.X.X.', 'X...X'],
+  surprised: ['.XXX.', 'X...X', 'X...X', 'X...X', '.XXX.'],
+  love:      ['.R.R.', 'RRRRR', 'RRRRR', '.RRR.', '..R..'],
+  star:      ['..G..', '..G..', 'GGGGG', '.GGG.', '.G.G.'],
+  money:     ['.M.', 'MMM', 'M..', 'MMM', '..M', 'MMM', '.M.'],
+  annoyed:   ['XXXX', '..XX'],
+  cry:       ['XXX', '.X.', '.B.', '...', '.B.'],
+  wink:      { L: null, R: ['XXX'] },
+};
+eyes.forEach(e => {
+  e.faces = {};
+  for (const [k, f] of Object.entries(FACES)) {
+    const rows = Array.isArray(f) ? (e.s < 0 ? f : mirror(f)) : (e.s < 0 ? f.L : f.R);
+    if (rows) e.faces[k] = pixels(e.g, rows, PX, pxGeo, FACE_MAT, -0.004);
+  }
+});
+// 腮红:眼睛外下方两小块粉色
+const blushMat = new THREE.MeshStandardMaterial({ color: 0xF2A08F, roughness: 0.6, transparent: true, opacity: 0.85 });
+const blush = new THREE.Group();
+[-1, 1].forEach(s => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(EYE * 1.1, EYE * 0.4, 0.02), blushMat);
+  m.position.set(s * (EYE_X + EYE * 0.35), EYE_Y - EYE * 1.25, BD / 2 + 0.008);
+  blush.add(m);
+});
+blush.visible = false;
+bodyG.add(blush);
+// 像素墨镜:横跨两只眼睛,镜片中心对准眼睛
+const SG_LENS = ['XXXXXX', 'XWXWXX', 'XXWXWX', '.XXXX.'];
+const SG_GAP = 11, SG_Q = 2 * EYE_X / (SG_LENS[0].length + SG_GAP);
+const sgRows = SG_LENS.map((r, i) => i === 0 ? 'X'.repeat(r.length * 2 + SG_GAP) : r + '.'.repeat(SG_GAP) + r);
+const sunglasses = pixels(bodyG, sgRows, SG_Q, new THREE.BoxGeometry(SG_Q, SG_Q, 0.03), { X: dark, W: white });
+sunglasses.position.set(0, EYE_Y + SG_Q * 0.4, BD / 2 + 0.01);
+let faceOverride = null, faceOverrideUntil = 0, dizzyUntil = 0;
+// 临时换个表情,secs 秒后恢复
+function flashFace(face, secs) { faceOverride = face; faceOverrideUntil = clock.elapsedTime + secs; }
+function setFace(face) {
+  const glasses = face === 'cool';
+  sunglasses.visible = glasses;
+  blush.visible = face === 'love' || face === 'happy';
+  eyes.forEach(e => {
+    e.m.visible = !glasses && !e.faces[face];
+    for (const [k, g] of Object.entries(e.faces)) g.visible = k === face;
+  });
+}
+
+// ---------------- 道具 ----------------
+// 同样的方块风格,看场景自动出现:睡觉戴睡帽、庆祝戴派对帽、跳舞可能戴耳机、
+// 你在用 Claude Code 时摆台小电脑陪你写、早上捧杯咖啡。
+const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55 });
+const PM = { cream: mat(0xF4EFE6), indigo: mat(0x5E6C9E), ochre: mat(0xD4A24C), verte: mat(0x7FA383), gold: mat(0xF2C14E),
+  grey: mat(0x55514C), steel: mat(0xB9B4AC), coffee: mat(0x5A3A26), orange };
+const PROPS = {};
+function prop(name, parent) { const g = new THREE.Group(); g.visible = false; parent.add(g); PROPS[name] = g; return g; }
+{ // 睡帽:一层层往一边耷拉的长尖帽 + 白帽檐 + 白绒球
+  const g = prop('nightcap', bodyG);
+  box(g, PM.cream, [0, BH + 0.08, 0], [BW * 0.36, 0.16, BW * 0.36], 0.05);
+  // [宽, x, y]:先往上收尖,再往一侧弯下来,绒球垂在旁边
+  [[0.6, 0, 0.24], [0.48, 0.04, 0.44], [0.37, 0.12, 0.62], [0.28, 0.27, 0.76], [0.21, 0.45, 0.8], [0.16, 0.62, 0.72]].forEach(([w, x, y]) =>
+    box(g, PM.indigo, [x, BH + y, 0], [BW * w * 0.5, 0.2, BW * w * 0.5], 0.03));
+  box(g, PM.cream, [0.75, BH + 0.55, 0], [0.26, 0.26, 0.26], 0.08);
+}
+{ // 派对帽:土黄 / 绿土相间的方块尖塔 + 金色顶球,歪戴
+  const g = prop('party', bodyG);
+  g.position.set(BW * 0.15, BH, 0); g.rotation.z = -0.2;
+  [0.8, 0.62, 0.46, 0.32, 0.2].forEach((w, i) => box(g, i % 2 ? PM.verte : PM.ochre, [0, 0.09 + i * 0.17, 0], [w, 0.17, w], 0.02));
+  box(g, PM.gold, [0, 0.98, 0], [0.2, 0.2, 0.2], 0.06);
+}
+{ // 耳机:头顶一道粗箍,两侧大耳罩(带橙色亮片),耳罩在手臂上方
+  const g = prop('headphones', bodyG);
+  box(g, PM.grey, [0, BH + 0.16, 0], [BW * 0.92, 0.1, 0.2], 0.03);
+  [-1, 1].forEach(s => {
+    box(g, PM.grey, [s * BW * 0.47, BH + 0.02, 0], [0.1, 0.3, 0.2], 0.03);
+    box(g, PM.grey, [s * (BW / 2 + 0.08), BH * 0.8, 0], [0.18, 0.5, 0.5], 0.05);
+    box(g, PM.orange, [s * (BW / 2 + 0.175), BH * 0.8, 0], [0.02, 0.26, 0.26], 0.01);
+  });
+}
+{ // 小笔记本电脑:抱在身前打字,屏幕朝着 Clawd,背面朝你,背面有个橙色小方标
+  const g = prop('laptop', bodyG);
+  g.position.set(0, BH * 0.04, BD / 2 + 0.32);
+  box(g, PM.steel, [0, 0.03, -0.05], [BW * 0.72, 0.06, 0.55], 0.02);
+  const lid = new THREE.Group(); lid.position.set(0, 0.06, 0.22); lid.rotation.x = 0.12; g.add(lid);
+  box(lid, PM.steel, [0, 0.3, 0], [BW * 0.72, 0.6, 0.05], 0.02);
+  box(lid, PM.orange, [0, 0.32, 0.03], [0.16, 0.16, 0.01], 0.01);
+}
+{ // 咖啡杯:捧在胸前,冒两缕像素热气
+  const g = prop('coffee', bodyG);
+  g.position.set(BW * 0.3, BH * 0.12, BD / 2 + 0.2);
+  box(g, PM.cream, [0, 0, 0], [0.34, 0.4, 0.34], 0.05);
+  box(g, PM.coffee, [0, 0.195, 0], [0.27, 0.02, 0.27], 0.005);
+  box(g, PM.cream, [0.21, 0.02, 0], [0.09, 0.2, 0.07], 0.025);
+  [[-0.05, 0.29], [0.02, 0.36], [0.07, 0.29]].forEach(([x, y]) => box(g, PM.cream, [x, y, 0], [0.05, 0.05, 0.05], 0.01));
+}
+let curProp = null, propOverride = null, propOverrideUntil = 0;
+function setProp(name) { for (const [k, g] of Object.entries(PROPS)) g.visible = k === name; }
 
 // 汗珠:用量多的时候从额头侧边滑下来
 const sweatMat = new THREE.MeshStandardMaterial({ color: 0x8fd3ff, roughness: 0.1, transparent: true, opacity: 0 });
@@ -138,24 +264,28 @@ const STEP_T = 0.17, STEP_H = 0.16;
 const cursor = { x: -9999, y: -9999, at: -10 };
 let wander = true;
 
-// ---------------- 用量 & 心情 ----------------
-// 心情:有订阅额度数据时按 5 小时额度已用百分比(本周额度快用完也算累);
-// 没有额度数据时退回按当前 5 小时窗口的估算花费(美元)
-const MOOD_BUSY_PCT = 50, MOOD_TIRED_PCT = 80, WEEK_TIRED_PCT = 90;
+// ---------------- 用量 & 状态 ----------------
+// 按剩余额度分 5 档(取 5 小时额度和本周额度里剩得更少的那个):
+//   0 精神饱满 ≥50% · 1 有点忙 20~50% · 2 累了 10~20% · 3 快没电了 <10% · 4 额度用完了
+// 没有额度数据时(例如用 API Key)退回按当前 5 小时窗口的估算花费,只分前三档。
+const LEVEL_BUSY = 50, LEVEL_TIRED = 20, LEVEL_LOW = 10;
 const MOOD_BUSY = 8, MOOD_TIRED = 25;
+const MOOD_NAME = ['精神饱满', '有点忙', '累了', '快没电了', '额度用完了'];
+let usage = null, mood = 0;
+const levelOf = r => (r <= 0 ? 4 : r < LEVEL_LOW ? 3 : r < LEVEL_TIRED ? 2 : r < LEVEL_BUSY ? 1 : 0);
+let quota = null;   // 当前最紧张的那个额度窗口:{ label, rem, resetsAt }
 function moodFrom(u) {
   const L = u.limits;
-  if (L && (L.fiveHour || L.sevenDay)) {
-    const h = L.fiveHour ? L.fiveHour.used : 0, w = L.sevenDay ? L.sevenDay.used : 0;
-    if (h >= MOOD_TIRED_PCT || w >= WEEK_TIRED_PCT) return 2;
-    return h >= MOOD_BUSY_PCT ? 1 : 0;
+  const wins = L ? [['5 小时额度', L.fiveHour], ['本周额度', L.sevenDay]].filter(([, w]) => w) : [];
+  if (wins.length) {
+    const [label, w] = wins.reduce((a, b) => (b[1].remaining < a[1].remaining ? b : a));
+    quota = { label, rem: w.remaining, resetsAt: w.resetsAt };
+    return levelOf(w.remaining);
   }
+  quota = null;
   const c = u.block ? u.block.cost : 0;
   return c >= MOOD_TIRED ? 2 : c >= MOOD_BUSY ? 1 : 0;
 }
-const MOOD_NAME = ['精神饱满', '有点忙', '累了'];
-let usage = null, mood = 0;
-
 const bubble = document.getElementById('bubble');
 const nowSec = () => performance.now() / 1000;
 let bubbleUntil = 0, bubbleKind = null;
@@ -197,9 +327,8 @@ function usageHtml(u) {
     const bar = (label, w) => {
       if (!w) return '';
       const left = Math.round(w.remaining);
-      const cls = left <= 20 ? 'low' : left <= 50 ? 'mid' : '';
-      return `<div class="quota ${cls}"><div class="qhead"><span>${label}</span><b>剩 ${left}%</b><i>${fmtReset(w.resetsAt)}</i></div>`
-        + `<div class="qbar"><div style="width:${Math.min(100, w.used)}%"></div></div></div>`;
+      return `<div class="quota lv${levelOf(w.remaining)}"><div class="qhead"><span>${label}</span><b>剩 ${left}%</b><i>${fmtReset(w.resetsAt)}</i></div>`
+        + `<div class="qbar"><div style="width:${Math.max(0, Math.min(100, w.remaining))}%"></div></div></div>`;
     };
     html += bar('5 小时额度', L.fiveHour) + bar('本周额度', L.sevenDay);
     const ago = Math.round((Date.now() - L.savedAt) / 60000);
@@ -228,27 +357,120 @@ function showUsage() {
   say(usageHtml(usage), 8, 'usage');
 }
 
-let usageInit = false;
+let usageInit = false, lastNag = 0;
+function quotaLine() {
+  if (!quota) return '';
+  return `${quota.label}只剩 <b>${Math.round(quota.rem)}%</b>`;
+}
 window.pet?.onUsage(u => {
   usage = u;
+  const prev = mood;
   const m = moodFrom(u);
-  // 心情变差时主动冒一句(启动时的第一次不算)
-  if (usageInit && m > mood && !paused && bubbleKind !== 'usage') {
-    const left = u.limits && u.limits.fiveHour ? `(5 小时额度只剩 ${Math.round(u.limits.fiveHour.remaining)}%)` : '';
-    say(m === 2 ? `额度快见底了…有点累 💦${left}` : `忙起来啦 💦${left}`, 4);
-  }
   mood = m;
+  const free = !paused && bubbleKind !== 'usage' && action.type !== 'drag' && action.type !== 'leave';
+  if (usageInit && free) {
+    if (m > prev) {
+      // 状态变差:主动冒一句
+      if (m === 1) say(`忙起来啦 💦<br>${quotaLine()}`, 4);
+      if (m === 2) say(`有点累了… 💦<br>${quotaLine()}`, 5);
+      if (m === 3) { say(`⚠️ 快没电了！${quotaLine()}<br>省着点用～ ${quota ? fmtReset(quota.resetsAt) : ''}`, 7); lastNag = nowSec(); }
+      if (m === 4) { flashFace('cry', 3); say(`额度用完啦… ${quota ? fmtReset(quota.resetsAt).replace('重置', '恢复') : ''}<br>我先睡会 💤`, 7); if (!isClinging()) setAction({ type: 'sleep' }); }
+    } else if (prev >= 2 && m <= 1) {
+      // 额度重置了:醒来庆祝
+      say('额度恢复啦！🎉', 4);
+      if (!isClinging()) setAction({ type: 'dance', dur: 3, face: 'star' }); else flashFace('star', 3);
+    } else if (m === 3 && nowSec() - lastNag > 15 * 60) {
+      say(`⚠️ ${quotaLine()}，省着点用～`, 5);
+      lastNag = nowSec();
+    }
+  }
+  if (!usageInit && m === 4 && !isClinging()) setAction({ type: 'sleep' });
   usageInit = true;
   if (bubbleKind === 'usage') bubble.innerHTML = usageHtml(usage);   // 气泡开着时实时刷新
 });
+
+// ---------------- 自言自语 ----------------
+// 闲着的时候每隔 40~100 秒随机冒一句,内容看时间、额度、是不是贴在墙上、你最近用得猛不猛。
+// 额度用完(睡着)、被拖着、气泡开着时不说话。
+const CHAT = {
+  any: ['哼哼哼～ ♪', '（伸了个懒腰）', '在想下一个 bug 藏在哪…', '要不要喝口水？💧', '我是螃蟹吗？🦀 不是哦', 'commit 了吗？',
+    '(・ω・)', '今天也要好好写代码 ✨', '戳戳我试试？', '偷偷告诉你，我会跳舞', '测试都跑过了吗？', '休息一下眼睛吧 👀'],
+  night: ['这么晚还不睡？🌙', '夜深了，早点休息哦', '熬夜会掉头发的…'],
+  morning: ['早上好 ☀️', '今天也元气满满！', '来杯咖啡吗？☕'],
+  lunch: ['该吃午饭啦 🍱', '饿了…'],
+  evening: ['快下班了吧？', '今天辛苦啦 🌇'],
+  busy: ['有点忙，但还撑得住 💪', '你的手速好快…', '冲冲冲！'],
+  tired: ['好累…', '能歇会儿吗…', '我…还能…再跑一会…'],
+  low: ['电量告急 🪫', '要省着点用哦', '快…快没电了…'],
+  cling: ['偷偷看着你 👀', '墙边好凉快', '我藏好了吗？', '嘘——'],
+  active: ['你又在用 Claude Code 啦', '写得好快！', '这段代码看起来不错哦'],
+  idle: ['好久没理我了…', '在忙别的吗？', '无聊…'],
+};
+let nextChat = nowSec() + 15 + Math.random() * 15, lastChat = '';   // rand() 在后面才定义,这里直接用 Math.random
+function chatter(force = false) {
+  const now = nowSec();
+  if (!force && now < nextChat) return;
+  nextChat = now + rand(40, 100);
+  if (paused || bubbleKind || mood === 4 || ['drag', 'leave', 'sleep', 'fall'].includes(action.type)) return;
+  const h = new Date().getHours();
+  const pools = [CHAT.any];
+  if (h < 5 || h >= 23) pools.push(CHAT.night, CHAT.night);
+  else if (h < 10) pools.push(CHAT.morning);
+  else if (h >= 11 && h < 13) pools.push(CHAT.lunch);
+  else if (h >= 17 && h < 20) pools.push(CHAT.evening);
+  if (mood === 1) pools.push(CHAT.busy);
+  if (mood === 2) pools.push(CHAT.tired, CHAT.tired);
+  if (mood === 3) pools.push(CHAT.low, CHAT.low);
+  if (isClinging()) pools.push(CHAT.cling, CHAT.cling);
+  const since = usage && usage.lastActive ? Date.now() - usage.lastActive : Infinity;
+  if (since < 3 * 60e3) pools.push(CHAT.active);
+  else if (since > 60 * 60e3 && since < Infinity) pools.push(CHAT.idle);
+  if (usage && usage.today.cost >= 20) pools.push([`今天已经烧了 ${fmtCost(usage.today.cost)} 的 token 啦 🔥`]);
+  let line;
+  for (let i = 0; i < 5 && (!line || line === lastChat); i++) { const pool = pools[Math.floor(Math.random() * pools.length)]; line = pool[Math.floor(Math.random() * pool.length)]; }
+  lastChat = line;
+  say(line, 3.5, 'chat');
+  if (line.includes('烧了')) flashFace('money', 3.5);
+  if (!isClinging() && action.type !== 'walk' && Math.random() < 0.3) setAction({ type: 'wave', dur: 1.2 });
+}
+
+// ---------------- 贴边 ----------------
+// Clawd 侧过身扒在屏幕左/右边缘,大半个身子藏在屏幕外,只露出眼睛偷看;不走动、不挡东西。
+// 进入:拖到边缘松手 / 用力甩向边缘 / 菜单「贴到屏幕边上」。离开:把它拖走 / 菜单「离开边缘」。
+const CLING_HIDE = LEG_L + BH * 0.42;   // 藏进屏幕外的深度(从脚底算起)
+const CLING_PEEK = 0.45;                // 光标靠近时多探出来的距离
+let peek = 0;
+const isClinging = () => action.type === 'cling';
+function startCling(side, y) {
+  const top = Hpx / S - BW / 2 - 0.3;
+  setAction({ type: 'cling', side, y: Math.min(top, Math.max(BW / 2 + 0.3, y)) });
+  st.air = false; st.vx = st.vy = 0;
+  window.pet?.setClinging(true);
+}
+function stopCling() {
+  // 从墙上跳下来,回到地面上活动
+  const side = action.side;
+  st.x = side < 0 ? minX() : maxX();
+  st.air = true; st.vx = -side * 3; st.vy = 4;
+  setAction({ type: 'fall' });
+  window.pet?.setClinging(false);
+}
 
 // ---------------- 行为 ----------------
 let action = { type: 'rest', t: 0, dur: 1.5 };
 const rand = (a, b) => a + Math.random() * (b - a);
 
 function pickAction() {
+  if (interactive) return { type: 'rest', dur: 1 };   // 光标停在它身上时就乖乖待着,方便点
   if (!wander) return { type: 'rest', dur: 3 };
   const r = Math.random();
+  if (mood === 4) return { type: 'sleep' };                 // 额度用完:一直睡
+  if (mood === 3) {
+    // 快没电了:很少走动,大多趴着
+    if (r < 0.15) return pickWalk();
+    if (r < 0.7) return { type: 'flop', dur: rand(6, 12) };
+    return { type: 'rest', dur: rand(3, 6) };
+  }
   if (mood === 2) {
     // 累了:少走动,不蹦不跳,常趴下打盹
     if (r < 0.3) return pickWalk();
@@ -282,8 +504,10 @@ window.pet?.onCommand(cmd => {
   if (cmd === 'restore') {
     // 从屏幕上方原来的位置掉下来
     paused = false;
-    hovering = false;
-    root.scale.setScalar(1); root.rotation.y = 0;
+    hovering = false; interactive = false;
+    canvas.classList.remove('ghost');
+    root.scale.setScalar(1); root.rotation.y = 0; root.rotation.z = 0;
+    window.pet?.setClinging(false);
     st.y = Hpx / S + 1; st.vx = 0; st.vy = 0; st.air = true;
     feet.forEach((f, i) => { f.x = st.x + REST_X[i]; f.y = st.y - LEG_L; f.vx = f.vy = 0; f.swing = null; });
     setAction({ type: 'fall' });
@@ -292,11 +516,25 @@ window.pet?.onCommand(cmd => {
     return;
   }
   if (action.type === 'drag' || action.type === 'leave') return;
+  if (isClinging() && ['jump', 'wave', 'dance', 'lean', 'walk', 'home'].includes(cmd)) stopCling();
+  if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }
+  if (cmd === 'passthrough-off') { passthrough = false; return; }
   if (cmd === 'wander-on') { wander = true; return; }
   if (cmd === 'wander-off') { wander = false; setAction({ type: 'rest', dur: 2 }); return; }
   if (cmd === 'home') { setAction({ type: 'walk', target: Wpx / S / 2 }); return; }
   if (cmd === 'walk') { setAction(pickWalk()); return; }
-  if (cmd === 'usage') { showUsage(); setAction({ type: 'present', dur: 2.4 }); return; }
+  if (cmd === 'cling') {
+    if (isClinging()) { stopCling(); return; }
+    // 往近的那边墙跳过去,撞上就贴住
+    const side = st.x < Wpx / S / 2 ? -1 : 1;
+    st.air = true; st.vx = side * 14; st.vy = 10;
+    setAction({ type: 'fall', wantCling: true });
+    return;
+  }
+  if (cmd === 'chat') { chatter(true); return; }
+  if (cmd.startsWith('face:')) { flashFace(cmd.slice(5), 6); return; }
+  if (cmd.startsWith('prop:')) { propOverride = cmd.slice(5); propOverrideUntil = clock.elapsedTime + 6; return; }
+  if (cmd === 'usage') { showUsage(); if (!isClinging()) setAction({ type: 'present', dur: 2.4 }); return; }
   if (cmd === 'jump') setAction({ type: 'jump', dir: Math.random() < 0.5 ? -1 : 1 });
   if (cmd === 'wave') setAction({ type: 'wave', dur: 2.4 });
   if (cmd === 'dance') setAction({ type: 'dance', dur: 4 });
@@ -322,13 +560,46 @@ function hitTest(px, py) {
   return raycaster.intersectObject(root, true).length > 0;
 }
 
+// ---- 防挡 ----
+// 1. 光标只是路过时:Clawd 变半透明,点击直接穿透到下面的 App;
+//    在它身上停留 HOVER_INTENT 秒才变实、可以点和拖,同时停下脚步看着你。
+// 2. 光标在它附近忙活一阵(说明你在那块区域干活):它自己走开,让出地方。
+const HOVER_INTENT = 0.35, SHY_AFTER = 1.2, SHY_COOLDOWN = 6;
+let hoverSince = 0, interactive = false, passthrough = false;
+let nearSince = 0, lastShy = -99;
 window.pet?.onCursor(p => {
-  if (p.x !== cursor.x || p.y !== cursor.y) cursor.at = performance.now() / 1000;
+  const now = nowSec();
+  const moved = p.x !== cursor.x || p.y !== cursor.y;
+  if (moved) cursor.at = now;
   cursor.x = p.x; cursor.y = p.y;
-  const hit = action.type === 'drag' || hitTest(p.x, p.y);
-  if (hit !== hovering) { hovering = hit; window.pet.setIgnore(!hit); }
-  // 鼠标停在它身上:停下脚步看着你(也更容易点中)
-  if (hit && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }
+  if (paused) return;
+
+  const onPet = hitTest(p.x, p.y);
+  if (onPet && !hovering) hoverSince = now;
+  hovering = onPet;
+  const want = action.type === 'drag' || (!passthrough && onPet && now - hoverSince >= HOVER_INTENT);
+  if (want !== interactive) {
+    interactive = want;
+    window.pet.setIgnore(!want);
+    if (want && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }
+  }
+  canvas.classList.toggle('ghost', onPet && !interactive && action.type !== 'drag');
+
+  const px = st.x * S, groundY = Hpx - st.y * S;
+  const near = !onPet && st.y < 0.5
+    && Math.abs(p.x - px) < BW * S / 2 + 120
+    && p.y > groundY - (LEG_L + BH) * S - 140 && p.y < groundY + 40;
+  if (!near) nearSince = 0;
+  else if (moved && !nearSince) nearSince = now;
+  if (near && nearSince && now - nearSince > SHY_AFTER && now - lastShy > SHY_COOLDOWN
+      && ['rest', 'walk', 'lean', 'flop', 'present'].includes(action.type)) {
+    lastShy = now; nearSince = 0;
+    // 往远离光标的一侧走开 8~12 个身位;那边没地方就往另一边
+    const dir = p.x / S < st.x ? 1 : -1;
+    let tx = st.x + dir * rand(8, 12);
+    if (tx < minX() || tx > maxX()) tx = st.x - dir * rand(8, 12);
+    setAction({ type: 'walk', target: Math.min(maxX(), Math.max(minX(), tx)) });
+  }
 });
 
 let press = null;
@@ -341,6 +612,7 @@ canvas.addEventListener('pointermove', e => {
   const dx = e.clientX - press.px, dy = e.clientY - press.py;
   if (!press.moved && Math.hypot(dx, dy) > 4) {
     press.moved = true;
+    if (isClinging()) { window.pet?.setClinging(false); press.x0 = st.x = Math.min(maxX(), Math.max(minX(), st.x)); }
     canvas.classList.add('dragging');
     setAction({ type: 'drag' });
     st.air = true;
@@ -353,24 +625,46 @@ canvas.addEventListener('pointermove', e => {
   press.v[0] = press.v[0] * 0.6 + ((e.clientX - lx) / S / ddt) * 0.4;
   press.v[1] = press.v[1] * 0.6 + (-(e.clientY - ly) / S / ddt) * 0.4;
   press.last = [e.clientX, e.clientY, now];
+  press.lastX = e.clientX; pressSide = e.clientX < Wpx / 2 ? -1 : 1;
   const nx = Math.min(maxX(), Math.max(minX(), press.x0 + dx / S));
   const ny = Math.max(0, press.y0 - dy / S);
   st.vx = Math.max(-15, Math.min(15, (nx - st.x) / ddt));
   st.vy = Math.max(-15, Math.min(15, (ny - st.y) / ddt));
   st.x = nx; st.y = ny;
 });
+let pressSide = 1;
+const press_side = () => pressSide;
+let pokes = [];
 function release() {
   if (!press) return;
   canvas.classList.remove('dragging');
   if (press.moved) {
+    const EDGE = 60;
+    if (press.lastX <= EDGE || press.lastX >= Wpx - EDGE) {
+      press = null;
+      startCling(press_side(), st.y + LEG_L);
+      return;
+    }
     st.vx = Math.max(-14, Math.min(14, press.v[0]));
     st.vy = Math.max(-10, Math.min(14, press.v[1]));
     st.air = st.y > 0.001 || st.vy > 0;
     setAction({ type: 'fall' });
   } else {
-    if (bubbleKind === 'usage') {
+    // 1.5 秒内连戳 4 下:不耐烦
+    const now = nowSec();
+    pokes = pokes.filter(x => now - x < 1.5); pokes.push(now);
+    if (pokes.length >= 4) {
+      pokes = [];
+      hideBubble(); say('别戳啦！😤', 2); flashFace('annoyed', 2.5);
+      press = null;
+      return;
+    }
+    if (isClinging()) {
+      if (bubbleKind === 'usage') hideBubble(); else showUsage();
+      action.waveT = 0;
+    } else if (bubbleKind === 'usage') {
       hideBubble();
-      setAction(mood === 2 ? { type: 'wave', dur: 1.6 } : { type: 'jump', dir: 0, big: true });
+      setAction(mood === 4 ? { type: 'sleep' } : mood >= 2 ? { type: 'wave', dur: 1.6 } : { type: 'jump', dir: 0, big: true });
     } else {
       showUsage();
       setAction({ type: 'present', dur: 2.4 });
@@ -389,8 +683,29 @@ const clock = new THREE.Clock();
 let nextBlink = 2, blinkT = -1, blinkN = 0;
 let idleLook = 0, nextIdleLook = 3;
 let landKick = 0;
+let curFace = 'normal';
 let sweatT = -1, nextSweat = 3;
+// 每档的身体颜色:越累越暗淡,额度用完时变成灰色(直接混灰会发脏)
+const BODY_COLOR = [0xD97757, 0xD97757, 0xCB7556, 0xB5735F, 0x9A9894].map(c => new THREE.Color(c));
+const badge = document.getElementById('badge');
 const tmp = new THREE.Vector3();
+// Clawd 身体(连同身上的道具)在屏幕上的可见范围(把包围盒投影到屏幕上;贴边时只算露出来的那部分)。
+// 血条和气泡都挂在它的顶边中点上,不管是站着还是转过来趴在墙上都对得上。
+const bodyBox = new THREE.Box3(), corner = new THREE.Vector3();
+function petAnchor() {
+  root.updateMatrixWorld(true);
+  camera.updateMatrixWorld();
+  bodyBox.setFromObject(bodyMesh);
+  for (const g of Object.values(PROPS)) if (g.visible) bodyBox.expandByObject(g);   // 戴着帽子等道具时,血条和气泡要让到道具上面
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i < 8; i++) {
+    corner.set(i & 1 ? bodyBox.max.x : bodyBox.min.x, i & 2 ? bodyBox.max.y : bodyBox.min.y, i & 4 ? bodyBox.max.z : bodyBox.min.z).project(camera);
+    const sx = canvasLeft + (corner.x + 1) / 2 * CW, sy = canvasTop + (1 - corner.y) / 2 * CH;
+    x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+  }
+  x0 = Math.max(0, x0); x1 = Math.min(Wpx, x1);
+  return { x: (x0 + x1) / 2, top: y0, left: x0, right: x1, midY: (y0 + y1) / 2 };
+}
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 1 / 30);
@@ -400,10 +715,11 @@ function frame() {
 
   // ---- 1. 当前动作给出"目标姿态" ----
   // 累的时候呼吸更慢更深、眼睛半闭
-  const br = mood === 2 ? Math.sin(t * 1.4) * 0.03 : Math.sin(t * 2.3) * 0.012;
-  let bx = 0, by = br, rz = 0, squash = 1 + br;
-  let armRot = [0, 0], armDrop = mood === 2 ? [0.05, 0.05] : [0, 0];
-  let look = null, eyeOpen = mood === 2 ? 0.55 : 1, walkDir = 0;
+  // 累的时候呼吸更慢更深、眼睛半闭、手耷拉;快没电时还会微微发抖
+  const br = mood >= 2 ? Math.sin(t * 1.4) * 0.03 : Math.sin(t * 2.3) * 0.012;
+  let bx = mood === 3 ? Math.sin(t * 47) * 0.006 : 0, by = br, rz = 0, squash = 1 + br;
+  let armRot = [0, 0], armDrop = mood >= 2 ? [0.05 + (mood - 2) * 0.04, 0.05 + (mood - 2) * 0.04] : [0, 0];
+  let look = null, eyeOpen = [1, 1, 0.55, 0.4, 0.1][mood], walkDir = 0;
   let footLift = null;                      // 跳舞时直接指定抬脚高度
   let airKick = 0;                          // 被拎起来时的蹬腿幅度
 
@@ -415,7 +731,7 @@ function frame() {
   else if (a.type === 'walk') {
     const dx = a.target - st.x;
     walkDir = Math.sign(dx);
-    const vmax = 2.3 * [1, 0.85, 0.55][mood];                       // 累了走得慢
+    const vmax = 2.3 * [1, 0.85, 0.55, 0.4, 0.4][mood];             // 越累走得越慢
     const v = walkDir * Math.min(vmax, Math.abs(dx) * 2.2 + 0.25);  // 起步、到站自然减速
     st.vx = v;
     st.x += v * dt;
@@ -513,6 +829,31 @@ function frame() {
     if (p > a.dur) finish();
   }
 
+  else if (a.type === 'cling') {
+    // 扒在墙上偷看:光标靠近 / 能点时多探出来一点;累了就闭眼趴着
+    const wantPeek = interactive || hovering || bubbleKind ? CLING_PEEK : 0;
+    peek += (wantPeek - peek) * Math.min(1, dt * 6);
+    st.x = a.side < 0 ? -CLING_HIDE + peek : Wpx / S + CLING_HIDE - peek;
+    st.y = a.y; st.vx = st.vy = 0;
+    armRot = [-0.15, -0.15];
+    if (a.waveT !== undefined) {                       // 被点了:探出来招招手
+      a.waveT += dt;
+      armRot[a.side < 0 ? 1 : 0] = 1.0 + Math.sin(a.waveT * 11) * 0.3;
+      if (a.waveT > 1.6) delete a.waveT;
+    }
+    look = interactive ? null : -a.side;               // 平时朝屏幕里面看
+    if (mood === 4) eyeOpen = 0.06;
+  }
+
+  else if (a.type === 'sleep') {
+    // 额度用完:趴着睡,直到额度恢复
+    by = -LEG_L * 0.55 + Math.sin(t * 0.9) * 0.03;
+    squash = 0.94; eyeOpen = 0.06; armRot = [-0.32, -0.32]; look = 0;
+    if (!a.nextZ) a.nextZ = 1.5;
+    if (p > a.nextZ) { a.nextZ = p + 14; if (bubbleKind === null) say('Zzz…', 3); }
+    if (mood < 4 && p > 1) finish();
+  }
+
   else if (a.type === 'leave') {
     if (p < 0.14) { by = -0.16; squash = 0.85; armDrop = [0.12, 0.12]; eyeOpen = 0.6; }
     else {
@@ -542,12 +883,17 @@ function frame() {
     st.vy -= G * dt;
     st.x += st.vx * dt;
     st.y += st.vy * dt;
-    if (st.x < minX()) { st.x = minX(); st.vx = Math.abs(st.vx) * 0.5; }
-    if (st.x > maxX()) { st.x = maxX(); st.vx = -Math.abs(st.vx) * 0.5; }
+    const wallHit = st.x < minX() ? -1 : st.x > maxX() ? 1 : 0;
+    if (wallHit && (a.wantCling || Math.abs(st.vx) > 9) && a.type !== 'drag') {
+      startCling(wallHit, st.y + LEG_L);
+    } else {
+      if (st.x < minX()) { st.x = minX(); st.vx = Math.abs(st.vx) * 0.5; }
+      if (st.x > maxX()) { st.x = maxX(); st.vx = -Math.abs(st.vx) * 0.5; }
+    }
     if (st.y <= 0) {
       const impact = -st.vy;
       st.y = 0;
-      if (impact > 13) { st.vy = impact * 0.28; st.vx *= 0.6; }   // 摔得重会弹一下
+      if (impact > 13) { st.vy = impact * 0.28; st.vx *= 0.6; dizzyUntil = t + 1.8; }   // 摔得重会弹一下,还会晕一会
       else { st.vy = 0; st.vx = 0; st.air = false; }
       // 落地:身体压扁后果冻回弹,手往下"弹"一下
       sp.squash.x = Math.max(0.68, 1 - impact * 0.02); sp.squash.v = 0;
@@ -582,11 +928,16 @@ function frame() {
     arm.g.position.y = ARM_Y - sp.armDrop[i].step(armDrop[i], dt);
   });
   root.position.set(st.x, st.y, 0);
+  // 注意用 action(当前动作)而不是 a:撞墙贴上的那一帧,a 还是之前的 fall,没有 side
+  const rzTarget = isClinging() ? action.side * Math.PI / 2 : 0;
+  root.rotation.z += (rzTarget - root.rotation.z) * Math.min(1, dt * 10);
+  if (!Number.isFinite(root.rotation.z)) root.rotation.z = rzTarget;   // 兜底:防止一次异常值让 Clawd 永久消失
   bodyG.updateMatrix();
 
   // ---- 5. 脚:落地时钉住、按需迈步;在空中时挂在髋下面晃荡 ----
   const hips = REST_X.map(rx => tmp.set(rx, 0.12, 0).applyMatrix4(bodyG.matrix).clone().add(root.position));
   feet.forEach((f, i) => {
+    if (isClinging()) { f.x = st.x + REST_X[i]; f.y = st.y; f.vx = f.vy = 0; f.swing = null; return; }
     const hip = hips[i];
     if (st.air) {
       f.swing = null;
@@ -656,11 +1007,42 @@ function frame() {
     blink = b < 1 ? Math.abs(1 - 2 * b) * 0.9 + 0.1 : 1;
     if (b >= 1.5) { if (--blinkN > 0) blinkT = t; else { blinkT = -1; nextBlink = t + rand(2, 5); } }
   }
+  // 当前表情:由动作决定(跳舞时有一定概率戴墨镜)
+  let face = 'normal';
+  const petting = hovering && interactive && !press && nowSec() - hoverSince > 2.5;   // 光标停在身上不动 = 在摸它
+  if (petting && !a.purred) { a.purred = true; if (!bubbleKind) say('嘿嘿～ 好舒服 💗', 2.5); }
+  if (a.type === 'drag') face = 'surprised';
+  else if (t < dizzyUntil) face = 'dizzy';
+  else if (faceOverride && t < faceOverrideUntil) face = faceOverride;
+  else if (petting) face = 'love';
+  else if (a.type === 'dance') { if (a.cool === undefined) a.cool = Math.random() < 0.4; face = a.face || (a.cool ? 'cool' : 'happy'); }
+  else if (a.type === 'jump' && a.big) face = 'happy';
+  else if (a.type === 'wave' || a.type === 'present') face = mood >= 2 ? 'normal' : 'joy';
+  else if (a.type === 'rest' && mood < 2) {
+    // 闲着时偶尔眨一只眼
+    if (a.winkAt === undefined) a.winkAt = Math.random() < 0.18 ? rand(0.3, 1.2) : -1;
+    if (a.winkAt >= 0 && p > a.winkAt && p < a.winkAt + 0.55) face = 'wink';
+  }
+  if (face !== curFace) { curFace = face; setFace(face); }
+
+  // 当前道具:跟着动作/场景走,每段动作开始时决定一次
+  if (a.prop === undefined) {
+    const h = new Date().getHours();
+    const coding = usage && usage.lastActive && Date.now() - usage.lastActive < 3 * 60e3;
+    a.prop = null;
+    if (a.type === 'sleep') a.prop = 'nightcap';
+    else if (a.type === 'dance') a.prop = a.face === 'star' ? 'party' : a.cool ? null : (Math.random() < 0.45 ? 'headphones' : Math.random() < 0.5 ? 'party' : null);
+    else if (a.type === 'rest' && mood < 3 && coding && Math.random() < 0.55) a.prop = 'laptop';
+    else if (a.type === 'rest' && mood < 3 && h >= 6 && h < 11 && Math.random() < 0.4) a.prop = 'coffee';
+  }
+  const want = propOverride && t < propOverrideUntil ? propOverride : a.prop;
+  if (want !== curProp) { curProp = want; setProp(want); }
   eyes.forEach(e => {
     e.g.position.x = e.s * EYE_X + EX * 0.16;
     e.g.position.y = EYE_Y + EY * 0.09;
     const s = Math.min(blink, eyeOpen);
     e.m.scale.y = s;
+    for (const k of ['happy', 'joy', 'love', 'star']) e.faces[k].scale.y = Math.max(0.2, blink);   // 像素表情也跟着眨眼
     e.m.position.y = -(1 - s) * EYE * 0.3;
   });
 
@@ -671,29 +1053,58 @@ function frame() {
   sun.position.set(st.x - 2, 9, 4); sun.target.position.set(st.x, 0, 0);
   rim.position.set(st.x + 3, 4, -5); rim.target.position.set(st.x, 1, 0);
   shadowPlane.position.set(st.x, 0, 0);
-  shadowPlane.material.opacity = 0.18 * Math.max(0, 1 - st.y / 8);
+  shadowPlane.material.opacity = isClinging() ? 0 : 0.18 * Math.max(0, 1 - st.y / 8);
 
   canvasLeft = Math.round(st.x * S - CW / 2);
   canvasTop = Math.round(Hpx - st.y * S - (CH - GROUND_PX));
   canvas.style.transform = `translate(${canvasLeft}px, ${canvasTop}px)`;
 
   // ---- 8. 汗珠:忙时偶尔、累时经常从额头侧边滑下来 ----
-  if (mood > 0 && sweatT < 0 && t > nextSweat && a.type !== 'drag') sweatT = t;
+  if (mood > 0 && mood < 4 && sweatT < 0 && t > nextSweat && a.type !== 'drag' && a.type !== 'sleep') sweatT = t;
   if (sweatT >= 0) {
     const k = (t - sweatT) / 1.1;
     sweat.position.set(BW / 2 - 0.28, BH * 0.92 - k * 0.5, BD / 2 + 0.04);
     sweatMat.opacity = k < 0.15 ? k / 0.15 : Math.max(0, 1 - (k - 0.15) / 0.85);
-    if (k >= 1) { sweatT = -1; sweatMat.opacity = 0; nextSweat = t + (mood === 2 ? rand(2, 4) : rand(5, 9)); }
+    if (k >= 1) { sweatT = -1; sweatMat.opacity = 0; nextSweat = t + [0, rand(5, 9), rand(2, 4), rand(1, 2.5), 99][mood]; }
   }
 
-  // ---- 9. 头顶气泡跟着 Clawd 走,不超出屏幕 ----
+  // ---- 9. 身体颜色随档位渐变 ----
+  orange.color.lerp(BODY_COLOR[mood], Math.min(1, dt * 2));
+
+  // ---- 10. 头顶血条:格子 = 5 小时额度,旁边的小圆环 = 本周额度。有额度数据就常驻(气泡开着时让位) ----
+  const L = usage && usage.limits;
+  if (L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused) {
+    const r = Math.max(0, Math.round(L.fiveHour ? L.fiveHour.remaining : 100));   // 5 小时窗口过期 = 已重置,满格
+    const hl = levelOf(r), cells = Math.min(10, Math.ceil(r / 10));
+    const vert = isClinging();
+    const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt).replace('重置', '恢复')}` : hl >= 2 ? `${r}%` : '';
+    const wk = L.sevenDay ? Math.max(0, Math.min(100, Math.round(L.sevenDay.remaining))) : null;
+    const key = `${hl}|${cells}|${text}|${vert}|${wk}`;
+    if (badge.dataset.key !== key) {
+      badge.dataset.key = key;
+      badge.innerHTML = '<div class="hp">' + Array.from({ length: 10 }, (_, i) => `<i${i < cells ? ' class="on"' : ''}></i>`).join('') + '</div>'
+        + (!text ? '' : vert ? `<b><span>${r}</span><span>%</span></b>` : `<b>${text}</b>`)
+        + (wk === null ? '' : `<svg class="ring lv${levelOf(wk)}" viewBox="0 0 16 16"><circle class="track" cx="8" cy="8" r="6"/>`
+          + `<circle class="arc" cx="8" cy="8" r="6" pathLength="100" stroke-dasharray="${wk} 100" transform="rotate(-90 8 8)"/></svg>`);
+    }
+    badge.className = 'show lv' + hl + (vert ? ' vert' : '');
+    const bw = badge.offsetWidth, bh = badge.offsetHeight, an = petAnchor();
+    // 站着:挂在头顶;贴边:露出来的身体太窄,挂到身体朝屏幕里的那一侧
+    const bx = isClinging() ? (action.side > 0 ? an.left - bw - 10 : an.right + 10) : an.x - bw / 2;
+    const by = isClinging() ? an.midY - bh / 2 : an.top - bh - 8;
+    badge.style.transform = `translate(${Math.round(Math.min(Wpx - bw - 8, Math.max(8, bx)))}px, ${Math.round(Math.min(Hpx - bh - 8, Math.max(8, by)))}px)`;
+  } else if (badge.className) {
+    badge.className = '';
+  }
+
+  chatter();
+
+  // ---- 11. 头顶气泡跟着 Clawd 走,不超出屏幕 ----
   if (bubbleKind && nowSec() > bubbleUntil) hideBubble();
   if (bubbleKind) {
-    const bw = bubble.offsetWidth, bh = bubble.offsetHeight;
-    const px = st.x * S;
-    const headY = Hpx - (st.y + LEG_L + BY + BH * Q + 0.2) * S;
+    const bw = bubble.offsetWidth, bh = bubble.offsetHeight, an = petAnchor(), px = an.x;
     const left = Math.round(Math.min(Wpx - bw - 8, Math.max(8, px - bw / 2)));
-    const top = Math.round(Math.max(8, headY - bh - 14));
+    const top = Math.round(Math.max(8, an.top - bh - 14));
     bubble.style.transform = `translate(${left}px, ${top}px)`;
     bubble.style.setProperty('--tail', `${Math.min(bw - 18, Math.max(18, px - left))}px`);
   }
