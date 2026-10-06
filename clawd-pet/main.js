@@ -19,17 +19,37 @@ let wander = true;      // 是否自由活动
 let passthrough = false; // 完全穿透:Clawd 完全不接收鼠标,只能通过菜单互动
 let clinging = false;    // 是否贴在屏幕边上
 
-// ---------- 设置(目前只有大小),存在 userData/settings.json ----------
+// ---------- 设置(大小、血条显示方式),存在 userData/settings.json ----------
 const fs = require('fs');
 const SIZES = [['小', 0.75], ['中(默认)', 1], ['大', 1.3], ['特大', 1.6]];
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function loadSettings() { try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')); } catch { return {}; } }
+function saveSetting(key, v) {
+  try { fs.writeFileSync(settingsFile(), JSON.stringify({ ...loadSettings(), [key]: v })); } catch (e) { console.error('保存设置失败', e); }
+}
 let petScale = Number(loadSettings().scale) || 1;
+// 血条:一直显示 / 鼠标悬停时显示 / 关闭
+const HP_MODES = [['一直显示', 'always'], ['鼠标悬停时显示', 'hover'], ['关闭', 'off']];
+let hpMode = HP_MODES.some(([, v]) => v === loadSettings().hpMode) ? loadSettings().hpMode : 'always';
+// Dock 图标:可以关掉,Clawd 照常在桌面上,菜单改从菜单栏图标打开
+let showDock = loadSettings().showDock !== false;
+function keepOnTop() {
+  if (!win || win.isDestroyed()) return;
+  win.setAlwaysOnTop(true, 'floating');
+  // 默认会临时切换进程类型来盖住全屏 App,这一步会把 Dock 图标带回来;隐藏 Dock 时跳过
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: !showDock });
+}
+function applyDock() {
+  if (process.platform !== 'darwin' || !app.dock) return;
+  if (showDock) app.dock.show().then(() => { refreshMenus(); keepOnTop(); });
+  else { app.dock.hide(); keepOnTop(); }
+}
+function setHpMode(v) { hpMode = v; saveSetting('hpMode', v); send('hp:' + v); refreshMenus(); }
 function loadPet() { win.loadFile('index.html', { query: { scale: String(petScale) } }); }
 function setScale(v) {
   if (v === petScale) return;
   petScale = v;
-  try { fs.writeFileSync(settingsFile(), JSON.stringify({ ...loadSettings(), scale: v })); } catch (e) { console.error('保存设置失败', e); }
+  saveSetting('scale', v);
   clinging = false;
   if (win && !win.isDestroyed()) loadPet();   // 重新载入页面,按新大小重建画布
   refreshMenus();
@@ -97,8 +117,7 @@ function createWindow() {
       backgroundThrottling: false,
     },
   });
-  win.setAlwaysOnTop(true, 'floating');
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  keepOnTop();
   win.setIgnoreMouseEvents(true);
   loadPet();
   win.once('ready-to-show', () => win.showInactive());
@@ -106,6 +125,7 @@ function createWindow() {
     // 页面(重新)载入后,把菜单里的开关状态同步过去
     if (!wander) send('wander-off');
     if (passthrough) send('passthrough-on');
+    send('hp:' + hpMode);
     pushUsage(); refreshLimits(true);
   });
 
@@ -153,16 +173,8 @@ const act = (cmd) => () => { if (hidden) restore(); send(cmd); };
 
 // ---------- 菜单(菜单栏右键 & Dock 右键共用) ----------
 function menuTemplate({ forDock = false } = {}) {
-  const items = [
-    { label: hidden ? '放出 Clawd' : '收起 Clawd', click: toggle },
-    { label: '查看用量', click: () => { pushUsage(); act('usage')(); } },
-    { type: 'separator' },
-    { label: '跳一下', click: act('jump') },
-    { label: '打招呼', click: act('wave') },
-    { label: '跳舞', click: act('dance') },
-    { label: '探头张望', click: act('lean') },
-    { label: '散散步', click: act('walk') },
-    { type: 'separator' },
+  // 按分类整理:常用操作 → 动作 / 位置 → 外观 / 设置 → 退出
+  const settings = [
     { label: '自由活动', type: 'checkbox', checked: wander,
       click: (item) => { wander = item.checked; send(wander ? 'wander-on' : 'wander-off'); refreshMenus(); } },
     { label: '完全穿透(只看不点)', type: 'checkbox', checked: passthrough,
@@ -172,14 +184,37 @@ function menuTemplate({ forDock = false } = {}) {
         send(passthrough ? 'passthrough-on' : 'passthrough-off');
         refreshMenus();
       } },
-    { label: '大小', submenu: SIZES.map(([name, v]) => ({ label: name, type: 'radio', checked: petScale === v, click: () => setScale(v) })) },
-    { label: clinging ? '离开边缘' : '贴到屏幕边上', click: act('cling') },
-    { label: '回到屏幕中间', click: act('home') },
   ];
-  if (app.isPackaged) {
-    items.push({ label: '开机自动启动', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
+  if (process.platform === 'darwin' && app.dock) {
+    settings.push({ label: '在 Dock 中显示图标', type: 'checkbox', checked: showDock,
+      click: (item) => { showDock = item.checked; saveSetting('showDock', showDock); applyDock(); refreshMenus(); } });
+  }
+  if (app.isPackaged) {   // 开机自启只对装进「应用程序」的打包版有意义
+    settings.push({ type: 'separator' }, { label: '开机自动启动', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
       click: (item) => { app.setLoginItemSettings({ openAtLogin: item.checked }); refreshMenus(); } });
   }
+  const items = [
+    { label: hidden ? '放出 Clawd' : '收起 Clawd', click: toggle },
+    { label: '查看用量', click: () => { pushUsage(); act('usage')(); } },
+    { type: 'separator' },
+    { label: '动作', submenu: [
+      { label: '跳一下', click: act('jump') },
+      { label: '打招呼', click: act('wave') },
+      { label: '跳舞', click: act('dance') },
+      { label: '探头张望', click: act('lean') },
+      { label: '散散步', click: act('walk') },
+    ] },
+    { label: '位置', submenu: [
+      { label: clinging ? '离开边缘' : '贴到屏幕边上', click: act('cling') },
+      { label: '回到屏幕中间', click: act('home') },
+    ] },
+    { type: 'separator' },
+    { label: '外观', submenu: [
+      { label: '大小', submenu: SIZES.map(([name, v]) => ({ label: name, type: 'radio', checked: petScale === v, click: () => setScale(v) })) },
+      { label: '血条', submenu: HP_MODES.map(([name, v]) => ({ label: name, type: 'radio', checked: hpMode === v, click: () => setHpMode(v) })) },
+    ] },
+    { label: '设置', submenu: settings },
+  ];
   if (!forDock) items.push({ type: 'separator' }, { label: '退出 Clawd', role: 'quit' });
   return items;
 }
@@ -199,7 +234,7 @@ function createTray() {
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) {
-    app.dock.show();
+    if (showDock) app.dock.show(); else app.dock.hide();
     if (!app.isPackaged) app.dock.setIcon(path.join(__dirname, 'build', 'icon.png'));   // 打包后用 .icns
   }
   createWindow();

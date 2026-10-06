@@ -224,7 +224,45 @@ function prop(name, parent) { const g = new THREE.Group(); g.visible = false; pa
   box(g, PM.cream, [0.21, 0.02, 0], [0.09, 0.2, 0.07], 0.025);
   [[-0.05, 0.29], [0.02, 0.36], [0.07, 0.29]].forEach(([x, y]) => box(g, PM.cream, [x, y, 0], [0.05, 0.05, 0.05], 0.01));
 }
+// 节日装扮:按日期自动出现,和上面的道具分开管理(戴别的帽子时,节日帽子先摘下)
+const HOLIDAY = {};
+function holidayProp(name) { const g = new THREE.Group(); g.visible = false; bodyG.add(g); HOLIDAY[name] = g; return g; }
+{ // 万圣节:宽檐尖顶巫师帽,紫黑色 + 一道南瓜橙帽带,尖儿往后折
+  const g = holidayProp('witch'), W = mat(0x3E3550);
+  box(g, W, [0, BH + 0.04, 0], [BW * 0.78, 0.07, BD * 1.0], 0.02);
+  box(g, mat(0xE0A54A), [0, BH + 0.13, 0], [BW * 0.4, 0.1, BW * 0.4], 0.02);
+  [[0.38, 0, 0.26], [0.3, 0.02, 0.44], [0.22, 0.06, 0.6], [0.15, 0.14, 0.74], [0.1, 0.26, 0.8]].forEach(([w, x, y]) =>
+    box(g, W, [x, BH + y, 0], [BW * w, 0.2, BW * w], 0.02));
+}
+{ // 圣诞节:红色圣诞帽 + 白毛边 + 白绒球,往一侧耷拉
+  const g = holidayProp('santa'), R = mat(0xC8453F);
+  box(g, PM.cream, [0, BH + 0.08, 0], [BW * 0.5, 0.17, BW * 0.5], 0.05);
+  [[0.42, 0.02, 0.27], [0.33, 0.1, 0.45], [0.25, 0.24, 0.58], [0.18, 0.42, 0.62], [0.13, 0.58, 0.55]].forEach(([w, x, y]) =>
+    box(g, R, [x, BH + y, 0], [BW * w, 0.2, BW * w], 0.03));
+  box(g, PM.cream, [0.72, BH + 0.42, 0], [0.24, 0.24, 0.24], 0.08);
+}
+{ // 春节:红围巾绕身体一圈,前面垂下一截,带金色条纹
+  const g = holidayProp('scarf'), R = mat(0xC8453F), y = BH * 0.3, h = 0.24, t = 0.08;
+  box(g, R, [0, y, BD / 2 + t / 2], [BW + t * 2, h, t], 0.02);
+  box(g, R, [0, y, -BD / 2 - t / 2], [BW + t * 2, h, t], 0.02);
+  [-1, 1].forEach(s => box(g, R, [s * (BW / 2 + t / 2), y, 0], [t, h, BD], 0.02));
+  box(g, R, [BW * 0.28, y - 0.22, BD / 2 + t], [0.24, 0.4, t], 0.02);
+  box(g, PM.gold, [BW * 0.28, y - 0.3, BD / 2 + t + 0.045], [0.24, 0.05, 0.01], 0.005);
+  box(g, PM.gold, [0, y, BD / 2 + t + 0.005], [BW + t * 2, 0.04, 0.01], 0.005);
+}
+const HAT_PROPS = ['nightcap', 'party', 'headphones'];
+const LUNAR_NEW_YEAR = ['2027-02-06', '2028-01-26', '2029-02-13', '2030-02-03', '2031-01-23', '2032-02-11'];
+function holidayToday(d = new Date()) {
+  const m = d.getMonth() + 1, day = d.getDate();
+  if ((m === 10 && day >= 24) || (m === 11 && day === 1)) return 'witch';
+  if (m === 12 && day >= 18 && day <= 26) return 'santa';
+  for (const s of LUNAR_NEW_YEAR) { const diff = (d - new Date(s + 'T00:00:00')) / 864e5; if (diff >= -5 && diff < 10) return 'scarf'; }
+  return null;
+}
+let holidayOn = true, holidayForce = null, curHoliday = null;
+
 let curProp = null, propOverride = null, propOverrideUntil = 0;
+let hpMode = 'always', hpHoverUntil = 0;   // 血条显示方式:always / hover / off(主进程按菜单设置发过来)
 function setProp(name) { for (const [k, g] of Object.entries(PROPS)) g.visible = k === name; }
 
 // 汗珠:用量多的时候从额头侧边滑下来
@@ -289,13 +327,38 @@ function moodFrom(u) {
 const bubble = document.getElementById('bubble');
 const nowSec = () => performance.now() / 1000;
 let bubbleUntil = 0, bubbleKind = null;
-function say(html, secs, kind = 'say') {
+// kind:'say' 对你说的话 / 'chat' 自言自语(心里话气泡)/ 'usage' 用量面板
+const PX_FRAME = '<div class="pxf"><div class="pxs"></div><i class="d1"></i><i class="d2"></i></div>';   // 像素外框
+function setBubbleHtml(html, type) {
   bubble.innerHTML = html;
-  bubble.classList.add('show');
+  if (type) typeIn(bubble);
+  bubble.insertAdjacentHTML('afterbegin', PX_FRAME);
+}
+function say(html, secs, kind = 'say') {
+  setBubbleHtml(html, kind !== 'usage');   // 用量面板是数据,不逐字打
+  bubble.className = 'show ' + kind;
+  void bubble.offsetWidth;          // 重新触发弹出动画
+  bubble.classList.add('pop');
   bubbleUntil = nowSec() + secs;
   bubbleKind = kind;
 }
-function hideBubble() { bubble.classList.remove('show'); bubbleKind = null; }
+function hideBubble() { bubble.classList.remove('show', 'pop'); bubbleKind = null; }
+// 把文字拆成一个个字,配合 CSS 逐字出现(保留 <b>、<br> 等标签)
+function typeIn(el) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  let i = 0;
+  for (const n of nodes) {
+    const frag = document.createDocumentFragment();
+    for (const c of Array.from(n.textContent)) {
+      const sp = document.createElement('span');
+      sp.className = 'ch'; sp.textContent = c; sp.style.setProperty('--i', i++);
+      frag.appendChild(sp);
+    }
+    n.replaceWith(frag);
+  }
+}
 
 const fmtCost = c => '$' + (c >= 100 ? c.toFixed(0) : c.toFixed(2));
 function fmtTokens(n) {
@@ -328,7 +391,11 @@ function usageHtml(u) {
       if (!w) return '';
       const left = Math.round(w.remaining);
       return `<div class="quota lv${levelOf(w.remaining)}"><div class="qhead"><span>${label}</span><b>剩 ${left}%</b><i>${fmtReset(w.resetsAt)}</i></div>`
-        + `<div class="qbar"><div style="width:${Math.max(0, Math.min(100, w.remaining))}%"></div></div></div>`;
+        + `<div class="qbar"><div style="width:${Math.max(0, Math.min(100, w.remaining))}%"></div></div>`
+        + (w === L.fiveHour && etaInfo(w) ? (etaInfo(w).beforeReset
+          ? `<div class="eta warn">⏳ 照现在速度，约 ${fmtMin(etaInfo(w).min)}后用完</div>`
+          : `<div class="eta ok">照现在速度，撑得到重置</div>`) : '')
+        + '</div>';
     };
     html += bar('5 小时额度', L.fiveHour) + bar('本周额度', L.sevenDay);
     const ago = Math.round((Date.now() - L.savedAt) / 60000);
@@ -385,8 +452,9 @@ window.pet?.onUsage(u => {
     }
   }
   if (!usageInit && m === 4 && !isClinging()) setAction({ type: 'sleep' });
+  if (usageInit) checkEtaAndBreak(u);
   usageInit = true;
-  if (bubbleKind === 'usage') bubble.innerHTML = usageHtml(usage);   // 气泡开着时实时刷新
+  if (bubbleKind === 'usage') setBubbleHtml(usageHtml(usage), false);   // 气泡开着时实时刷新
 });
 
 // ---------------- 自言自语 ----------------
@@ -405,12 +473,14 @@ const CHAT = {
   cling: ['偷偷看着你 👀', '墙边好凉快', '我藏好了吗？', '嘘——'],
   active: ['你又在用 Claude Code 啦', '写得好快！', '这段代码看起来不错哦'],
   idle: ['好久没理我了…', '在忙别的吗？', '无聊…'],
+  working: ['Claude 在努力干活…', '我帮你盯着呢 👀', '敲敲敲…', '这个任务有点大哦'],
 };
 let nextChat = nowSec() + 15 + Math.random() * 15, lastChat = '';   // rand() 在后面才定义,这里直接用 Math.random
 function chatter(force = false) {
   const now = nowSec();
   if (!force && now < nextChat) return;
-  nextChat = now + rand(40, 100);
+  if (chatLevel === 'off') { nextChat = now + 30; return; }
+  nextChat = now + ({ chatty: rand(18, 45), quiet: rand(180, 360) }[chatLevel] || rand(40, 100));
   if (paused || bubbleKind || mood === 4 || ['drag', 'leave', 'sleep', 'fall'].includes(action.type)) return;
   const h = new Date().getHours();
   const pools = [CHAT.any];
@@ -425,6 +495,7 @@ function chatter(force = false) {
   const since = usage && usage.lastActive ? Date.now() - usage.lastActive : Infinity;
   if (since < 3 * 60e3) pools.push(CHAT.active);
   else if (since > 60 * 60e3 && since < Infinity) pools.push(CHAT.idle);
+  if (ccWorking()) pools.push(CHAT.working, CHAT.working);
   if (usage && usage.today.cost >= 20) pools.push([`今天已经烧了 ${fmtCost(usage.today.cost)} 的 token 啦 🔥`]);
   let line;
   for (let i = 0; i < 5 && (!line || line === lastChat); i++) { const pool = pools[Math.floor(Math.random() * pools.length)]; line = pool[Math.floor(Math.random() * pool.length)]; }
@@ -432,6 +503,73 @@ function chatter(force = false) {
   say(line, 3.5, 'chat');
   if (line.includes('烧了')) flashFace('money', 3.5);
   if (!isClinging() && action.type !== 'walk' && Math.random() < 0.3) setAction({ type: 'wave', dur: 1.2 });
+}
+
+// ---------------- 偏好(主进程按菜单设置发过来) ----------------
+let chatLevel = 'normal', breakMin = 60, ccNotify = { done: true, ask: true }, ccHooks = false;
+
+// ---------------- 和 Claude Code 联动(hooks) ----------------
+// 发出指令 → 开始干活(抱电脑);回复完成 → 跳起来报告;需要确认 / 等你输入 → 举手提醒
+const esc = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const ccSessions = new Map();   // session → { working, since, last }
+function ccWorking() {
+  const now = Date.now();
+  for (const [id, x] of ccSessions) { if (now - x.last > 20 * 60e3) ccSessions.delete(id); else if (x.working) return true; }
+  return false;
+}
+function ccProject(ev) { return ev.project ? `<br><b>${esc(ev.project)}</b>` : ''; }
+window.pet?.onClaude?.(ev => {
+  const sid = ev.session || '?', now = Date.now();
+  const x = ccSessions.get(sid) || { working: false, since: now, last: now };
+  x.last = now;
+  const wasWorking = ccWorking();
+  if (ev.event === 'UserPromptSubmit') { x.working = true; x.since = now; ccSessions.set(sid, x); }
+  else if (ev.event === 'SessionEnd') ccSessions.delete(sid);
+  else if (ev.event === 'Stop') {
+    const took = now - x.since;
+    x.working = false; ccSessions.set(sid, x);
+    // 很快就答完的不打扰,干了一会儿(≥ 15 秒)的才报告
+    if (ccNotify.done && took >= 15e3 && !paused) {
+      say(`Claude 做完啦 ✅${ccProject(ev)}`, 6);
+      flashFace('happy', 2.5);
+      if (!isClinging() && action.type !== 'drag') setAction({ type: 'jump', dir: 0, big: true });
+    }
+  } else if (ev.event === 'Notification') {
+    ccSessions.set(sid, x);
+    if (ccNotify.ask && !paused) {
+      const m = ev.message.match(/permission to use (.+)$/i);
+      if (m) say(`🙋 要用 <b>${esc(m[1])}</b>，需要你批准${ccProject(ev)}`, 8);
+      else if (/waiting for your input/i.test(ev.message)) say(`💬 Claude 在等你回复${ccProject(ev)}`, 6);
+      else say(`🔔 ${esc(ev.message)}${ccProject(ev)}`, 6);
+      if (!isClinging() && action.type !== 'drag') setAction({ type: 'wave', dur: 2.4 }); else action.waveT = 0;
+    }
+  }
+  if (wasWorking !== ccWorking() && action.type === 'rest') delete action.prop;   // 状态一变,马上拿起 / 放下电脑
+});
+
+// ---------------- 额度用完预测 & 休息提醒(每次用量更新时检查) ----------------
+let etaWarnedFor = null, breakState = { start: null, n: 0 };
+function fmtMin(m) { return m >= 60 ? `${Math.floor(m / 60)} 小时${m % 60 ? ' ' + (m % 60) + ' 分' : ''}` : `${m} 分钟`; }
+function etaInfo(w) {
+  if (!w || w.etaMin == null) return null;
+  const toReset = w.resetsAt ? (w.resetsAt - Date.now()) / 60e3 : Infinity;
+  return { min: w.etaMin, beforeReset: w.etaMin < toReset - 5 };
+}
+function checkEtaAndBreak(u) {
+  const five = u.limits && u.limits.fiveHour, e = etaInfo(five);
+  if (e && e.beforeReset && e.min <= 45 && mood < 4 && etaWarnedFor !== five.resetsAt && !paused) {
+    etaWarnedFor = five.resetsAt;
+    say(`⏳ 照现在的速度<br>5 小时额度大约 <b>${fmtMin(e.min)}</b>后用完`, 7);
+  }
+  if (breakMin > 0 && u.streakStart && !paused) {
+    if (breakState.start !== u.streakStart) breakState = { start: u.streakStart, n: 0 };
+    const mins = Math.floor((Date.now() - u.streakStart) / 60e3), n = Math.floor(mins / breakMin);
+    if (n > breakState.n) {
+      breakState.n = n;
+      say(`已经连续写了 <b>${fmtMin(mins)}</b> 啦<br>起来活动一下吧 🧘`, 7);
+      if (!isClinging() && action.type !== 'drag') setAction({ type: 'stretch', dur: 3 });
+    }
+  }
 }
 
 // ---------------- 贴边 ----------------
@@ -465,6 +603,7 @@ function pickAction() {
   if (!wander) return { type: 'rest', dur: 3 };
   const r = Math.random();
   if (mood === 4) return { type: 'sleep' };                 // 额度用完:一直睡
+  if (ccHooks && ccWorking() && r < 0.65) return { type: 'rest', dur: rand(5, 10) };   // Claude 在干活:多抱着电脑待着
   if (mood === 3) {
     // 快没电了:很少走动,大多趴着
     if (r < 0.15) return pickWalk();
@@ -532,6 +671,15 @@ window.pet?.onCommand(cmd => {
     return;
   }
   if (cmd === 'chat') { chatter(true); return; }
+  if (cmd.startsWith('say:')) { say(cmd.slice(4), 4); return; }   // 开发自测:让它说一句
+  if (cmd.startsWith('chat:')) { chatLevel = cmd.slice(5); return; }
+  if (cmd.startsWith('break:')) { breakMin = Number(cmd.slice(6)) || 0; return; }
+  if (cmd.startsWith('holiday:')) { holidayOn = cmd.slice(8) !== 'off'; return; }
+  if (cmd.startsWith('holiday-test:')) { holidayForce = cmd.slice(13) || null; return; }   // 开发自测:提前看节日装扮
+  if (cmd.startsWith('cc-notify:')) { ccNotify = { done: cmd[10] === '1', ask: cmd[11] === '1' }; return; }
+  if (cmd.startsWith('cc-hooks:')) { ccHooks = cmd.slice(9) === 'on'; return; }
+  if (cmd === 'stretch') { if (!isClinging()) setAction({ type: 'stretch', dur: 3 }); return; }
+  if (cmd.startsWith('hp:')) { hpMode = cmd.slice(3); return; }
   if (cmd.startsWith('face:')) { flashFace(cmd.slice(5), 6); return; }
   if (cmd.startsWith('prop:')) { propOverride = cmd.slice(5); propOverrideUntil = clock.elapsedTime + 6; return; }
   if (cmd === 'usage') { showUsage(); if (!isClinging()) setAction({ type: 'present', dur: 2.4 }); return; }
@@ -692,11 +840,24 @@ const tmp = new THREE.Vector3();
 // Clawd 身体(连同身上的道具)在屏幕上的可见范围(把包围盒投影到屏幕上;贴边时只算露出来的那部分)。
 // 血条和气泡都挂在它的顶边中点上,不管是站着还是转过来趴在墙上都对得上。
 const bodyBox = new THREE.Box3(), corner = new THREE.Vector3();
+let steadyPose = null;   // 不带呼吸的身体姿态,见 frame() 第 4 步
+function setBodyPose(x, y, q) {
+  bodyG.position.set(x, y, 0);
+  bodyG.scale.set(1 / Math.sqrt(q), q, 1 / Math.sqrt(q));
+}
 function petAnchor() {
+  const pos = bodyG.position.clone(), scl = bodyG.scale.clone();
+  if (steadyPose) setBodyPose(...steadyPose);   // 按不带呼吸的姿态量,量完再放回去
+  const an = measureAnchor();
+  bodyG.position.copy(pos); bodyG.scale.copy(scl);
+  root.updateMatrixWorld(true);
+  return an;
+}
+function measureAnchor() {
   root.updateMatrixWorld(true);
   camera.updateMatrixWorld();
   bodyBox.setFromObject(bodyMesh);
-  for (const g of Object.values(PROPS)) if (g.visible) bodyBox.expandByObject(g);   // 戴着帽子等道具时,血条和气泡要让到道具上面
+  for (const g of [...Object.values(PROPS), ...Object.values(HOLIDAY)]) if (g.visible) bodyBox.expandByObject(g);   // 戴着帽子等道具时,血条和气泡要让到道具上面
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (let i = 0; i < 8; i++) {
     corner.set(i & 1 ? bodyBox.max.x : bodyBox.min.x, i & 2 ? bodyBox.max.y : bodyBox.min.y, i & 4 ? bodyBox.max.z : bodyBox.min.z).project(camera);
@@ -717,7 +878,10 @@ function frame() {
   // 累的时候呼吸更慢更深、眼睛半闭
   // 累的时候呼吸更慢更深、眼睛半闭、手耷拉;快没电时还会微微发抖
   const br = mood >= 2 ? Math.sin(t * 1.4) * 0.03 : Math.sin(t * 2.3) * 0.012;
-  let bx = mood === 3 ? Math.sin(t * 47) * 0.006 : 0, by = br, rz = 0, squash = 1 + br;
+  let bx = 0, by = 0, rz = 0, squash = 1;
+  // 呼吸起伏和发抖单独一层,最后才叠到身体上:气泡和血条定位时会把它扣掉,不然它们会跟着一像素一像素地抖
+  let breathY = br, breathQ = br;
+  const shakeX = mood === 3 ? Math.sin(t * 47) * 0.006 : 0;
   let armRot = [0, 0], armDrop = mood >= 2 ? [0.05 + (mood - 2) * 0.04, 0.05 + (mood - 2) * 0.04] : [0, 0];
   let look = null, eyeOpen = [1, 1, 0.55, 0.4, 0.1][mood], walkDir = 0;
   let footLift = null;                      // 跳舞时直接指定抬脚高度
@@ -821,11 +985,22 @@ function frame() {
     if (p > a.dur) finish();
   }
 
+  else if (a.type === 'stretch') {
+    // 伸懒腰:双手举高、身体拉长、眯眼,然后放松
+    const k = p < 0.5 ? p / 0.5 : p < a.dur - 0.6 ? 1 : Math.max(0, (a.dur - p) / 0.6);
+    const e = k * k * (3 - 2 * k);
+    armRot = [1.45 * e, 1.45 * e];
+    squash = 1 + 0.12 * e; by = 0.06 * e;
+    rz = Math.sin(p * 2.2) * 0.04 * e;
+    eyeOpen = 1 - 0.85 * e;
+    if (p > a.dur) finish();
+  }
+
   else if (a.type === 'flop') {
     // 趴下打盹:身体沉下去(脚不动,腿被压短),眼睛闭上,手耷拉着,呼吸起伏
-    by = -LEG_L * 0.5 + Math.sin(t * 1.2) * 0.025;
+    by = -LEG_L * 0.5; breathY = Math.sin(t * 1.2) * 0.025; breathQ = 0;
     squash = 0.95; eyeOpen = 0.06; armRot = [-0.28, -0.28]; look = 0;
-    if (p > 0.8 && !a.said && bubbleKind === null) { a.said = true; say('Zzz…', Math.min(3, a.dur - 1)); }
+    if (p > 0.8 && !a.said && bubbleKind === null) { a.said = true; say('Zzz…', Math.min(3, a.dur - 1), 'chat'); }
     if (p > a.dur) finish();
   }
 
@@ -847,10 +1022,10 @@ function frame() {
 
   else if (a.type === 'sleep') {
     // 额度用完:趴着睡,直到额度恢复
-    by = -LEG_L * 0.55 + Math.sin(t * 0.9) * 0.03;
+    by = -LEG_L * 0.55; breathY = Math.sin(t * 0.9) * 0.03; breathQ = 0;
     squash = 0.94; eyeOpen = 0.06; armRot = [-0.32, -0.32]; look = 0;
     if (!a.nextZ) a.nextZ = 1.5;
-    if (p > a.nextZ) { a.nextZ = p + 14; if (bubbleKind === null) say('Zzz…', 3); }
+    if (p > a.nextZ) { a.nextZ = p + 14; if (bubbleKind === null) say('Zzz…', 3, 'chat'); }
     if (mood < 4 && p > 1) finish();
   }
 
@@ -920,9 +1095,9 @@ function frame() {
   // ---- 4. 弹簧求解,摆好身体 ----
   const BX = sp.bx.step(bx, dt), BY = sp.by.step(by, dt), RZ = sp.rz.step(rz, dt);
   const Q = sp.squash.step(squash, dt);
-  bodyG.position.set(BX, LEG_L + BY, 0);
+  setBodyPose(BX + shakeX, LEG_L + BY + breathY, Q + breathQ);
   bodyG.rotation.z = RZ;
-  bodyG.scale.set(1 / Math.sqrt(Q), Q, 1 / Math.sqrt(Q));
+  steadyPose = [BX, LEG_L + BY, Q];
   arms.forEach((arm, i) => {
     arm.g.rotation.z = arm.s * sp.armRot[i].step(armRot[i], dt);    // > 0:外端抬起
     arm.g.position.y = ARM_Y - sp.armDrop[i].step(armDrop[i], dt);
@@ -1028,15 +1203,18 @@ function frame() {
   // 当前道具:跟着动作/场景走,每段动作开始时决定一次
   if (a.prop === undefined) {
     const h = new Date().getHours();
-    const coding = usage && usage.lastActive && Date.now() - usage.lastActive < 3 * 60e3;
+    const coding = ccHooks ? ccWorking() : usage && usage.lastActive && Date.now() - usage.lastActive < 3 * 60e3;
     a.prop = null;
     if (a.type === 'sleep') a.prop = 'nightcap';
     else if (a.type === 'dance') a.prop = a.face === 'star' ? 'party' : a.cool ? null : (Math.random() < 0.45 ? 'headphones' : Math.random() < 0.5 ? 'party' : null);
-    else if (a.type === 'rest' && mood < 3 && coding && Math.random() < 0.55) a.prop = 'laptop';
+    else if (a.type === 'rest' && mood < 3 && coding && (ccHooks || Math.random() < 0.55)) a.prop = 'laptop';   // 连上 hooks 后:Claude 在干活就一定抱着电脑
     else if (a.type === 'rest' && mood < 3 && h >= 6 && h < 11 && Math.random() < 0.4) a.prop = 'coffee';
   }
   const want = propOverride && t < propOverrideUntil ? propOverride : a.prop;
   if (want !== curProp) { curProp = want; setProp(want); }
+  const hol = holidayOn ? holidayForce || holidayToday() : null;
+  const wantHol = hol && !(HOLIDAY[hol] && hol !== 'scarf' && HAT_PROPS.includes(curProp)) && !isClinging() ? hol : null;
+  if (wantHol !== curHoliday) { curHoliday = wantHol; for (const [k, g] of Object.entries(HOLIDAY)) g.visible = k === wantHol; }
   eyes.forEach(e => {
     e.g.position.x = e.s * EYE_X + EX * 0.16;
     e.g.position.y = EYE_Y + EY * 0.09;
@@ -1073,19 +1251,24 @@ function frame() {
 
   // ---- 10. 头顶血条:格子 = 5 小时额度,旁边的小圆环 = 本周额度。有额度数据就常驻(气泡开着时让位) ----
   const L = usage && usage.limits;
-  if (L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused) {
+  if (hovering) hpHoverUntil = t + 1.5;   // 悬停模式:移开后再停 1.5 秒
+  const hpOn = hpMode === 'always' || (hpMode === 'hover' && t < hpHoverUntil);
+  if (hpOn && L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused) {
     const r = Math.max(0, Math.round(L.fiveHour ? L.fiveHour.remaining : 100));   // 5 小时窗口过期 = 已重置,满格
     const hl = levelOf(r), cells = Math.min(10, Math.ceil(r / 10));
     const vert = isClinging();
-    const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt).replace('重置', '恢复')}` : hl >= 2 ? `${r}%` : '';
+    const nums = t < hpHoverUntil;   // 鼠标悬停时(移开后 1.5 秒内)把两个百分比都显示出来
+    const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt).replace('重置', '恢复')}` : hl >= 2 || nums ? `${r}%` : '';
     const wk = L.sevenDay ? Math.max(0, Math.min(100, Math.round(L.sevenDay.remaining))) : null;
-    const key = `${hl}|${cells}|${text}|${vert}|${wk}`;
+    const pct = (v, cls = '') => vert ? `<b class="${cls}"><span>${v}</span><span>%</span></b>` : `<b class="${cls}">${v}%</b>`;
+    const key = `${hl}|${cells}|${text}|${vert}|${wk}|${nums}`;
     if (badge.dataset.key !== key) {
       badge.dataset.key = key;
       badge.innerHTML = '<div class="hp">' + Array.from({ length: 10 }, (_, i) => `<i${i < cells ? ' class="on"' : ''}></i>`).join('') + '</div>'
-        + (!text ? '' : vert ? `<b><span>${r}</span><span>%</span></b>` : `<b>${text}</b>`)
+        + (!text ? '' : vert ? pct(r) : `<b>${text}</b>`)
         + (wk === null ? '' : `<svg class="ring lv${levelOf(wk)}" viewBox="0 0 16 16"><circle class="track" cx="8" cy="8" r="6"/>`
-          + `<circle class="arc" cx="8" cy="8" r="6" pathLength="100" stroke-dasharray="${wk} 100" transform="rotate(-90 8 8)"/></svg>`);
+          + `<circle class="arc" cx="8" cy="8" r="6" pathLength="100" stroke-dasharray="${wk} 100" transform="rotate(-90 8 8)"/></svg>`
+          + (nums ? pct(wk, `wk lv${levelOf(wk)}`) : ''));
     }
     badge.className = 'show lv' + hl + (vert ? ' vert' : '');
     const bw = badge.offsetWidth, bh = badge.offsetHeight, an = petAnchor();
@@ -1093,8 +1276,8 @@ function frame() {
     const bx = isClinging() ? (action.side > 0 ? an.left - bw - 10 : an.right + 10) : an.x - bw / 2;
     const by = isClinging() ? an.midY - bh / 2 : an.top - bh - 8;
     badge.style.transform = `translate(${Math.round(Math.min(Wpx - bw - 8, Math.max(8, bx)))}px, ${Math.round(Math.min(Hpx - bh - 8, Math.max(8, by)))}px)`;
-  } else if (badge.className) {
-    badge.className = '';
+  } else if (badge.classList.contains('show')) {
+    badge.classList.remove('show');   // 只去掉 show,保留竖排等样式,淡出时不会从竖条跳成横条
   }
 
   chatter();
@@ -1104,7 +1287,7 @@ function frame() {
   if (bubbleKind) {
     const bw = bubble.offsetWidth, bh = bubble.offsetHeight, an = petAnchor(), px = an.x;
     const left = Math.round(Math.min(Wpx - bw - 8, Math.max(8, px - bw / 2)));
-    const top = Math.round(Math.max(8, an.top - bh - 14));
+    const top = Math.round(Math.max(8, an.top - bh - (bubbleKind === 'chat' ? 30 : bubbleKind === 'say' ? 18 : 14)));   // 心里话下面挂着两颗小方块,要多让一点
     bubble.style.transform = `translate(${left}px, ${top}px)`;
     bubble.style.setProperty('--tail', `${Math.min(bw - 18, Math.max(18, px - left))}px`);
   }
