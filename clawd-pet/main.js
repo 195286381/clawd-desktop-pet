@@ -4,7 +4,7 @@
 // 菜单栏和 Dock 里都常驻一个图标:可以把 Clawd "收起来"(最小化),再点一下放出来。
 const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
-const { UsageTracker } = require('./usage');
+const { UsageTracker, fetchLimits } = require('./usage');
 
 app.setName('Clawd');
 
@@ -24,8 +24,16 @@ function pushUsage() {
   if (!win || win.isDestroyed()) return;
   try { tracker.scan(); win.webContents.send('usage', tracker.summary()); } catch (e) { console.error('用量统计失败', e); }
 }
-ipcMain.on('request-usage', pushUsage);
+// 订阅额度:调用 `claude -p "/usage"` 查询(约 5 秒,不消耗额度)。每 5 分钟一次;点开气泡时若超过 1 分钟也刷新
+let limitsAt = 0;
+function refreshLimits(force = false) {
+  if (!force && Date.now() - limitsAt < 60000) return;
+  limitsAt = Date.now();
+  fetchLimits().then(pushUsage);
+}
+ipcMain.on('request-usage', () => { pushUsage(); refreshLimits(); });
 setInterval(pushUsage, 30000);
+setInterval(() => refreshLimits(true), 5 * 60000);
 
 const send = (cmd) => { if (win && !win.isDestroyed()) win.webContents.send('cmd', cmd); };
 
@@ -57,7 +65,7 @@ function createWindow() {
   win.setIgnoreMouseEvents(true);
   win.loadFile('index.html');
   win.once('ready-to-show', () => win.showInactive());
-  win.webContents.on('did-finish-load', pushUsage);
+  win.webContents.on('did-finish-load', () => { pushUsage(); refreshLimits(true); });
 
   // 持续把光标位置(窗口坐标)发给渲染进程:用于眼睛跟随,以及判断光标是否在 Clawd 身上
   const timer = setInterval(() => {

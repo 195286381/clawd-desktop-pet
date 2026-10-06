@@ -139,8 +139,20 @@ const cursor = { x: -9999, y: -9999, at: -10 };
 let wander = true;
 
 // ---------------- 用量 & 心情 ----------------
-// 心情由当前 5 小时窗口的估算花费(美元)决定:低于 MOOD_BUSY 精神饱满,超过 MOOD_TIRED 就累了
+// 心情:有订阅额度数据时按 5 小时额度已用百分比(本周额度快用完也算累);
+// 没有额度数据时退回按当前 5 小时窗口的估算花费(美元)
+const MOOD_BUSY_PCT = 50, MOOD_TIRED_PCT = 80, WEEK_TIRED_PCT = 90;
 const MOOD_BUSY = 8, MOOD_TIRED = 25;
+function moodFrom(u) {
+  const L = u.limits;
+  if (L && (L.fiveHour || L.sevenDay)) {
+    const h = L.fiveHour ? L.fiveHour.used : 0, w = L.sevenDay ? L.sevenDay.used : 0;
+    if (h >= MOOD_TIRED_PCT || w >= WEEK_TIRED_PCT) return 2;
+    return h >= MOOD_BUSY_PCT ? 1 : 0;
+  }
+  const c = u.block ? u.block.cost : 0;
+  return c >= MOOD_TIRED ? 2 : c >= MOOD_BUSY ? 1 : 0;
+}
 const MOOD_NAME = ['精神饱满', '有点忙', '累了'];
 let usage = null, mood = 0;
 
@@ -161,11 +173,39 @@ function fmtTokens(n) {
   if (n >= 1e4) return Math.round(n / 1e4) + ' 万';
   return String(n);
 }
+function fmtReset(ms) {
+  if (!ms) return '';
+  const d = new Date(ms), now = new Date();
+  const hm = d.toTimeString().slice(0, 5);
+  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 864e5);
+  if (days === 0) return `${hm} 重置`;
+  if (days === 1) return `明天 ${hm} 重置`;
+  return `周${'日一二三四五六'[d.getDay()]} ${hm} 重置`;
+}
+function fmtAgo(min) {
+  if (min < 60) return `${min} 分钟`;
+  if (min < 1440) return `${Math.round(min / 60)} 小时`;
+  return `${Math.round(min / 1440)} 天`;
+}
 function usageHtml(u) {
   if (!u) return '<div class="title">正在统计用量…</div>';
   if (!u.week.messages) return '<div class="title">最近 7 天还没用过 Claude Code</div>';
   const row = (k, v, note) => `<div class="row"><span>${k}</span><b>${v}</b><i>${note}</i></div>`;
   let html = '<div class="title">Claude Code 用量</div>';
+  const L = u.limits;
+  if (L) {
+    const bar = (label, w) => {
+      if (!w) return '';
+      const left = Math.round(w.remaining);
+      const cls = left <= 20 ? 'low' : left <= 50 ? 'mid' : '';
+      return `<div class="quota ${cls}"><div class="qhead"><span>${label}</span><b>剩 ${left}%</b><i>${fmtReset(w.resetsAt)}</i></div>`
+        + `<div class="qbar"><div style="width:${Math.min(100, w.used)}%"></div></div></div>`;
+    };
+    html += bar('5 小时额度', L.fiveHour) + bar('本周额度', L.sevenDay);
+    const ago = Math.round((Date.now() - L.savedAt) / 60000);
+    if (ago >= 10) html += `<div class="foot">额度数据 ${fmtAgo(ago)}前更新</div>`;
+    html += '<div class="sep"></div>';
+  }
   html += row('今天', fmtCost(u.today.cost), fmtTokens(u.today.tokens) + ' tokens');
   if (u.block) {
     const h = Math.floor(u.block.remainingMin / 60), m = u.block.remainingMin % 60;
@@ -179,7 +219,8 @@ function usageHtml(u) {
     html += '<div class="models">' + models.slice(0, 3)
       .map(([k, v]) => `${k} ${Math.round(v.cost / u.today.cost * 100)}%`).join(' · ') + '</div>';
   }
-  html += `<div class="foot">按 API 价格估算 · Clawd 现在${MOOD_NAME[mood]}</div>`;
+  const limitNote = L ? '' : (u.limitsError ? ` · 额度:${u.limitsError}` : ' · 额度查询中…');
+  html += `<div class="foot">花费按 API 价格估算${limitNote} · Clawd 现在${MOOD_NAME[mood]}</div>`;
   return html;
 }
 function showUsage() {
@@ -190,11 +231,11 @@ function showUsage() {
 let usageInit = false;
 window.pet?.onUsage(u => {
   usage = u;
-  const c = u.block ? u.block.cost : 0;
-  const m = c >= MOOD_TIRED ? 2 : c >= MOOD_BUSY ? 1 : 0;
+  const m = moodFrom(u);
   // 心情变差时主动冒一句(启动时的第一次不算)
   if (usageInit && m > mood && !paused && bubbleKind !== 'usage') {
-    say(m === 2 ? '这 5 小时用得好凶…有点累了 💦' : '忙起来啦 💦', 4);
+    const left = u.limits && u.limits.fiveHour ? `(5 小时额度只剩 ${Math.round(u.limits.fiveHour.remaining)}%)` : '';
+    say(m === 2 ? `额度快见底了…有点累 💦${left}` : `忙起来啦 💦${left}`, 4);
   }
   mood = m;
   usageInit = true;

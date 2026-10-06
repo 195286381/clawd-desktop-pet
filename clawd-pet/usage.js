@@ -35,6 +35,90 @@ function priceFor(model) {
 
 const DAY = 24 * 3600e3, BLOCK = 5 * 3600e3, KEEP = 8 * DAY;
 
+// ---------------- 订阅额度(和 Claude Code 里 /usage 显示的一样) ----------------
+// 调用官方命令行 `claude -p "/usage"`:它只向服务器查询额度,不调用模型、不消耗额度;
+// 加 --no-session-persistence 不留会话记录。Clawd 自己不读取任何登录凭证。
+const { execFile, execFileSync } = require('child_process');
+
+let claudeBin;
+function findClaude() {
+  if (claudeBin !== undefined) return claudeBin;
+  const home = os.homedir();
+  const candidates = [path.join(home, '.local/bin/claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude', path.join(home, '.claude/local/claude')];
+  claudeBin = candidates.find(p => { try { fs.accessSync(p, fs.constants.X_OK); return true; } catch { return false; } }) || null;
+  if (!claudeBin) {
+    // 从桌面启动的 App 的 PATH 很短,借登录 shell 找一下
+    try { claudeBin = execFileSync('/bin/zsh', ['-lc', 'command -v claude'], { encoding: 'utf8', timeout: 8000 }).trim() || null; } catch { claudeBin = null; }
+  }
+  return claudeBin;
+}
+
+const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+// "Oct 7 at 12:10am (Asia/Taipei)" / "12:10am (Asia/Taipei)" / "Oct 9 at 10am" -> 毫秒时间戳(本机时区)
+function parseReset(text, now) {
+  if (!text) return 0;
+  const m = text.match(/(?:([A-Z][a-z]{2})\w*\s+(\d{1,2})(?:,\s*(\d{4}))?\s+at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (!m) return 0;
+  let h = parseInt(m[4], 10) % 12;
+  if (m[6].toLowerCase() === 'pm') h += 12;
+  const d = new Date(now);
+  d.setSeconds(0, 0);
+  d.setHours(h, m[5] ? parseInt(m[5], 10) : 0);
+  if (m[1] && MONTHS[m[1].toLowerCase()] !== undefined) {
+    d.setFullYear(m[3] ? parseInt(m[3], 10) : d.getFullYear(), MONTHS[m[1].toLowerCase()], parseInt(m[2], 10));
+    if (!m[3] && d.getTime() < now - 2 * 24 * 3600e3) d.setFullYear(d.getFullYear() + 1);   // 跨年
+  } else if (d.getTime() <= now) {
+    d.setDate(d.getDate() + 1);                                                              // 只给了时刻:指下一次
+  }
+  return d.getTime();
+}
+
+// 解析 /usage 输出,例如:
+//   Current session: 67% used · resets Oct 7 at 12:10am (Asia/Taipei)
+//   Current week (all models): 18% used · resets Oct 9 at 10am (Asia/Taipei)
+function parseUsage(text, now) {
+  const windows = [];
+  for (const line of text.split('\n')) {
+    const m = line.match(/^\s*Current\s+(.+?):\s*([\d.]+)%\s*used(?:\s*·\s*resets\s+(.+))?\s*$/i);
+    if (!m) continue;
+    const used = parseFloat(m[2]);
+    windows.push({ key: m[1].trim(), used, remaining: Math.max(0, 100 - used), resetsAt: parseReset(m[3], now), resetText: (m[3] || '').trim() });
+  }
+  if (!windows.length) return null;
+  const find = (re) => windows.find(w => re.test(w.key)) || null;
+  return {
+    fiveHour: find(/^session$/i),
+    sevenDay: find(/^week\s*\(all/i) || find(/^week$/i),
+    others: windows.filter(w => !/^session$/i.test(w.key) && !/^week\s*\(all/i.test(w.key) && !/^week$/i.test(w.key)),
+    savedAt: now,
+  };
+}
+
+let limitsCache = null, limitsError = null, fetching = null;
+function fetchLimits() {
+  if (fetching) return fetching;
+  const bin = findClaude();
+  if (!bin) { limitsError = '没找到 claude 命令行'; return Promise.resolve(null); }
+  fetching = new Promise(resolve => {
+    execFile(bin, ['-p', '/usage', '--no-session-persistence'],
+      { cwd: os.tmpdir(), timeout: 45000, maxBuffer: 1 << 20, env: { ...process.env, NO_COLOR: '1' } },
+      (err, stdout) => {
+        fetching = null;
+        const parsed = !err && stdout ? parseUsage(stdout, Date.now()) : null;
+        if (parsed) { limitsCache = parsed; limitsError = null; }
+        else limitsError = err ? '查询失败' : '没有订阅额度信息(可能在用 API Key)';
+        resolve(limitsCache);
+      });
+  });
+  return fetching;
+}
+function currentLimits(now) {
+  if (!limitsCache) return null;
+  // 已经过了重置时间的窗口作废(等下次查询刷新)
+  const alive = (w) => (w && (!w.resetsAt || w.resetsAt > now) ? w : null);
+  return { ...limitsCache, fiveHour: alive(limitsCache.fiveHour), sevenDay: alive(limitsCache.sevenDay) };
+}
+
 function projectDirs() {
   const dirs = [];
   const env = process.env.CLAUDE_CONFIG_DIR;
@@ -158,11 +242,11 @@ class UsageTracker {
     }
 
     const lastActive = this.entries.length ? this.entries[this.entries.length - 1].t : null;
-    return { today: sum(today), week: sum(week), block: current, byModel, lastActive, updatedAt: now };
+    return { today: sum(today), week: sum(week), block: current, byModel, lastActive, limits: currentLimits(now), limitsError, updatedAt: now };
   }
 }
 
-module.exports = { UsageTracker };
+module.exports = { UsageTracker, fetchLimits, parseUsage };
 
 // 命令行自测:node usage.js
 if (require.main === module) {

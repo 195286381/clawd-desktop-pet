@@ -27,6 +27,18 @@
   #bubble .row i { font-style: normal; color: #8A8470; font-size: 12px; text-align: right; }
   #bubble .models { margin-top: 4px; font-size: 12px; color: #6B6556; }
   #bubble .foot { margin-top: 4px; font-size: 11px; color: #A39E90; }
+  #bubble .quota { margin: 2px 0 6px; }
+  #bubble .qhead { display: grid; grid-template-columns: 76px auto 1fr; gap: 8px; align-items: baseline; }
+  #bubble .qhead span { color: #8A8470; }
+  #bubble .qhead b { color: #2F7D4F; font-variant-numeric: tabular-nums; }
+  #bubble .qhead i { font-style: normal; color: #8A8470; font-size: 12px; text-align: right; }
+  #bubble .qbar { height: 6px; margin-top: 3px; border-radius: 3px; background: #EFE8DC; overflow: hidden; }
+  #bubble .qbar div { height: 100%; border-radius: 3px; background: #6BA77F; }
+  #bubble .quota.mid .qhead b { color: #B7791F; }
+  #bubble .quota.mid .qbar div { background: #E0A54A; }
+  #bubble .quota.low .qhead b { color: #C0392B; }
+  #bubble .quota.low .qbar div { background: #D9573F; }
+  #bubble .sep { height: 1px; background: #EFE8DC; margin: 4px 0 6px; }
 </style>
 </head>
 <body>
