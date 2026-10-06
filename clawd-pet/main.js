@@ -16,6 +16,7 @@ let win = null;
 let tray = null;
 let hidden = false;     // Clawd 是否被收起
 let wander = true;      // 是否自由活动
+let passthrough = false; // 完全穿透:Clawd 完全不接收鼠标,只能通过菜单互动
 
 const workArea = () => screen.getPrimaryDisplay().workArea;
 // ---------- 用量:每 30 秒增量扫描一次 Claude Code 的本地会话记录 ----------
@@ -54,6 +55,8 @@ function createWindow() {
     alwaysOnTop: true,
     // macOS 上用 NSPanel:点它不会抢走当前应用的焦点
     type: process.platform === 'darwin' ? 'panel' : 'toolbar',
+    // 不可聚焦:点 Clawd 也不会把键盘焦点抢过来,打字始终进入你当前的 App
+    focusable: false,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -80,6 +83,7 @@ function createWindow() {
 // 渲染进程告诉我们光标是否落在 Clawd 上
 let ignoring = true;
 ipcMain.on('set-ignore', (_e, ignore) => {
+  if (passthrough) ignore = true;
   if (!win || ignore === ignoring) return;
   ignoring = ignore;
   win.setIgnoreMouseEvents(ignore);
@@ -121,6 +125,13 @@ function menuTemplate({ forDock = false } = {}) {
     { type: 'separator' },
     { label: '自由活动', type: 'checkbox', checked: wander,
       click: (item) => { wander = item.checked; send(wander ? 'wander-on' : 'wander-off'); refreshMenus(); } },
+    { label: '完全穿透(只看不点)', type: 'checkbox', checked: passthrough,
+      click: (item) => {
+        passthrough = item.checked;
+        if (passthrough && win) { ignoring = true; win.setIgnoreMouseEvents(true); }
+        send(passthrough ? 'passthrough-on' : 'passthrough-off');
+        refreshMenus();
+      } },
     { label: '回到屏幕中间', click: act('home') },
   ];
   if (app.isPackaged) {

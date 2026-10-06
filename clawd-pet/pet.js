@@ -247,6 +247,7 @@ let action = { type: 'rest', t: 0, dur: 1.5 };
 const rand = (a, b) => a + Math.random() * (b - a);
 
 function pickAction() {
+  if (interactive) return { type: 'rest', dur: 1 };   // 光标停在它身上时就乖乖待着,方便点
   if (!wander) return { type: 'rest', dur: 3 };
   const r = Math.random();
   if (mood === 2) {
@@ -282,7 +283,8 @@ window.pet?.onCommand(cmd => {
   if (cmd === 'restore') {
     // 从屏幕上方原来的位置掉下来
     paused = false;
-    hovering = false;
+    hovering = false; interactive = false;
+    canvas.classList.remove('ghost');
     root.scale.setScalar(1); root.rotation.y = 0;
     st.y = Hpx / S + 1; st.vx = 0; st.vy = 0; st.air = true;
     feet.forEach((f, i) => { f.x = st.x + REST_X[i]; f.y = st.y - LEG_L; f.vx = f.vy = 0; f.swing = null; });
@@ -292,6 +294,8 @@ window.pet?.onCommand(cmd => {
     return;
   }
   if (action.type === 'drag' || action.type === 'leave') return;
+  if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }
+  if (cmd === 'passthrough-off') { passthrough = false; return; }
   if (cmd === 'wander-on') { wander = true; return; }
   if (cmd === 'wander-off') { wander = false; setAction({ type: 'rest', dur: 2 }); return; }
   if (cmd === 'home') { setAction({ type: 'walk', target: Wpx / S / 2 }); return; }
@@ -322,13 +326,46 @@ function hitTest(px, py) {
   return raycaster.intersectObject(root, true).length > 0;
 }
 
+// ---- 防挡 ----
+// 1. 光标只是路过时:Clawd 变半透明,点击直接穿透到下面的 App;
+//    在它身上停留 HOVER_INTENT 秒才变实、可以点和拖,同时停下脚步看着你。
+// 2. 光标在它附近忙活一阵(说明你在那块区域干活):它自己走开,让出地方。
+const HOVER_INTENT = 0.35, SHY_AFTER = 1.2, SHY_COOLDOWN = 6;
+let hoverSince = 0, interactive = false, passthrough = false;
+let nearSince = 0, lastShy = -99;
 window.pet?.onCursor(p => {
-  if (p.x !== cursor.x || p.y !== cursor.y) cursor.at = performance.now() / 1000;
+  const now = nowSec();
+  const moved = p.x !== cursor.x || p.y !== cursor.y;
+  if (moved) cursor.at = now;
   cursor.x = p.x; cursor.y = p.y;
-  const hit = action.type === 'drag' || hitTest(p.x, p.y);
-  if (hit !== hovering) { hovering = hit; window.pet.setIgnore(!hit); }
-  // 鼠标停在它身上:停下脚步看着你(也更容易点中)
-  if (hit && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }
+  if (paused) return;
+
+  const onPet = hitTest(p.x, p.y);
+  if (onPet && !hovering) hoverSince = now;
+  hovering = onPet;
+  const want = action.type === 'drag' || (!passthrough && onPet && now - hoverSince >= HOVER_INTENT);
+  if (want !== interactive) {
+    interactive = want;
+    window.pet.setIgnore(!want);
+    if (want && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }
+  }
+  canvas.classList.toggle('ghost', onPet && !interactive && action.type !== 'drag');
+
+  const px = st.x * S, groundY = Hpx - st.y * S;
+  const near = !onPet && st.y < 0.5
+    && Math.abs(p.x - px) < BW * S / 2 + 120
+    && p.y > groundY - (LEG_L + BH) * S - 140 && p.y < groundY + 40;
+  if (!near) nearSince = 0;
+  else if (moved && !nearSince) nearSince = now;
+  if (near && nearSince && now - nearSince > SHY_AFTER && now - lastShy > SHY_COOLDOWN
+      && ['rest', 'walk', 'lean', 'flop', 'present'].includes(action.type)) {
+    lastShy = now; nearSince = 0;
+    // 往远离光标的一侧走开 8~12 个身位;那边没地方就往另一边
+    const dir = p.x / S < st.x ? 1 : -1;
+    let tx = st.x + dir * rand(8, 12);
+    if (tx < minX() || tx > maxX()) tx = st.x - dir * rand(8, 12);
+    setAction({ type: 'walk', target: Math.min(maxX(), Math.max(minX(), tx)) });
+  }
 });
 
 let press = null;

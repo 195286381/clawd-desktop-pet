@@ -8,6 +8,8 @@
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent;
     -webkit-user-select: none; user-select: none; }
   #c { position: absolute; left: 0; top: 0; will-change: transform; cursor: grab; }
+  #c { transition: opacity .15s; }
+  #c.ghost { opacity: .3; }   /* 光标路过时变半透明,点击穿透 */
   #c.dragging { cursor: grabbing; }
 
   /* 头顶气泡 */
