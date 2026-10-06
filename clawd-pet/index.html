@@ -12,6 +12,16 @@
   #c.ghost { opacity: .3; }   /* 光标路过时变半透明,点击穿透 */
   #c.dragging { cursor: grabbing; }
 
+  /* 头顶电量标:剩余额度 ≤20% 时常驻 */
+  #badge { position: absolute; left: 0; top: 0; padding: 2px 8px; border-radius: 999px; opacity: 0;
+    font: 600 12px/18px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; white-space: nowrap;
+    pointer-events: none; transition: opacity .25s; box-shadow: 0 2px 8px rgba(60, 40, 20, .2); }
+  #badge.show { opacity: 1; }
+  #badge.lv2 { background: #FFF4E0; color: #B7791F; border: 1px solid #F0D3A0; }
+  #badge.lv3 { background: #FDECEA; color: #C0392B; border: 1px solid #F3B8B0; animation: blink 1.2s ease-in-out infinite; }
+  #badge.lv4 { background: #EDEBE8; color: #8A4B42; border: 1px solid #D5CFC8; }
+  @keyframes blink { 50% { opacity: .45; } }
+
   /* 头顶气泡 */
   #bubble { position: absolute; left: 0; top: 0; max-width: 300px; padding: 10px 14px 9px;
     background: #FFFCF6; color: #3D3929; border: 1px solid #E8DFD0; border-radius: 14px;
@@ -46,6 +56,7 @@
 <body>
 <canvas id="c"></canvas>
 <div id="bubble"></div>
+<div id="badge"></div>
 <script type="importmap">
 { "imports": {
   "three": "./node_modules/three/build/three.module.js",

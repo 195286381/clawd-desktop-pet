@@ -138,24 +138,28 @@ const STEP_T = 0.17, STEP_H = 0.16;
 const cursor = { x: -9999, y: -9999, at: -10 };
 let wander = true;
 
-// ---------------- 用量 & 心情 ----------------
-// 心情:有订阅额度数据时按 5 小时额度已用百分比(本周额度快用完也算累);
-// 没有额度数据时退回按当前 5 小时窗口的估算花费(美元)
-const MOOD_BUSY_PCT = 50, MOOD_TIRED_PCT = 80, WEEK_TIRED_PCT = 90;
+// ---------------- 用量 & 状态 ----------------
+// 按剩余额度分 5 档(取 5 小时额度和本周额度里剩得更少的那个):
+//   0 精神饱满 ≥50% · 1 有点忙 20~50% · 2 累了 10~20% · 3 快没电了 <10% · 4 额度用完了
+// 没有额度数据时(例如用 API Key)退回按当前 5 小时窗口的估算花费,只分前三档。
+const LEVEL_BUSY = 50, LEVEL_TIRED = 20, LEVEL_LOW = 10;
 const MOOD_BUSY = 8, MOOD_TIRED = 25;
+const MOOD_NAME = ['精神饱满', '有点忙', '累了', '快没电了', '额度用完了'];
+let usage = null, mood = 0;
+let quota = null;   // 当前最紧张的那个额度窗口:{ label, rem, resetsAt }
 function moodFrom(u) {
   const L = u.limits;
-  if (L && (L.fiveHour || L.sevenDay)) {
-    const h = L.fiveHour ? L.fiveHour.used : 0, w = L.sevenDay ? L.sevenDay.used : 0;
-    if (h >= MOOD_TIRED_PCT || w >= WEEK_TIRED_PCT) return 2;
-    return h >= MOOD_BUSY_PCT ? 1 : 0;
+  const wins = L ? [['5 小时额度', L.fiveHour], ['本周额度', L.sevenDay]].filter(([, w]) => w) : [];
+  if (wins.length) {
+    const [label, w] = wins.reduce((a, b) => (b[1].remaining < a[1].remaining ? b : a));
+    quota = { label, rem: w.remaining, resetsAt: w.resetsAt };
+    const r = w.remaining;
+    return r <= 0 ? 4 : r < LEVEL_LOW ? 3 : r < LEVEL_TIRED ? 2 : r < LEVEL_BUSY ? 1 : 0;
   }
+  quota = null;
   const c = u.block ? u.block.cost : 0;
   return c >= MOOD_TIRED ? 2 : c >= MOOD_BUSY ? 1 : 0;
 }
-const MOOD_NAME = ['精神饱满', '有点忙', '累了'];
-let usage = null, mood = 0;
-
 const bubble = document.getElementById('bubble');
 const nowSec = () => performance.now() / 1000;
 let bubbleUntil = 0, bubbleKind = null;
@@ -228,19 +232,59 @@ function showUsage() {
   say(usageHtml(usage), 8, 'usage');
 }
 
-let usageInit = false;
+let usageInit = false, lastNag = 0;
+function quotaLine() {
+  if (!quota) return '';
+  return `${quota.label}只剩 <b>${Math.round(quota.rem)}%</b>`;
+}
 window.pet?.onUsage(u => {
   usage = u;
+  const prev = mood;
   const m = moodFrom(u);
-  // 心情变差时主动冒一句(启动时的第一次不算)
-  if (usageInit && m > mood && !paused && bubbleKind !== 'usage') {
-    const left = u.limits && u.limits.fiveHour ? `(5 小时额度只剩 ${Math.round(u.limits.fiveHour.remaining)}%)` : '';
-    say(m === 2 ? `额度快见底了…有点累 💦${left}` : `忙起来啦 💦${left}`, 4);
-  }
   mood = m;
+  const free = !paused && bubbleKind !== 'usage' && action.type !== 'drag' && action.type !== 'leave';
+  if (usageInit && free) {
+    if (m > prev) {
+      // 状态变差:主动冒一句
+      if (m === 1) say(`忙起来啦 💦<br>${quotaLine()}`, 4);
+      if (m === 2) say(`有点累了… 💦<br>${quotaLine()}`, 5);
+      if (m === 3) { say(`⚠️ 快没电了！${quotaLine()}<br>省着点用～ ${quota ? fmtReset(quota.resetsAt) : ''}`, 7); lastNag = nowSec(); }
+      if (m === 4) { say(`额度用完啦… ${quota ? fmtReset(quota.resetsAt).replace('重置', '恢复') : ''}<br>我先睡会 💤`, 7); if (!isClinging()) setAction({ type: 'sleep' }); }
+    } else if (prev >= 2 && m <= 1) {
+      // 额度重置了:醒来庆祝
+      say('额度恢复啦！🎉', 4);
+      if (!isClinging()) setAction({ type: 'dance', dur: 3 });
+    } else if (m === 3 && nowSec() - lastNag > 15 * 60) {
+      say(`⚠️ ${quotaLine()}，省着点用～`, 5);
+      lastNag = nowSec();
+    }
+  }
+  if (!usageInit && m === 4 && !isClinging()) setAction({ type: 'sleep' });
   usageInit = true;
   if (bubbleKind === 'usage') bubble.innerHTML = usageHtml(usage);   // 气泡开着时实时刷新
 });
+
+// ---------------- 贴边 ----------------
+// Clawd 侧过身扒在屏幕左/右边缘,大半个身子藏在屏幕外,只露出眼睛偷看;不走动、不挡东西。
+// 进入:拖到边缘松手 / 用力甩向边缘 / 菜单「贴到屏幕边上」。离开:把它拖走 / 菜单「离开边缘」。
+const CLING_HIDE = LEG_L + BH * 0.42;   // 藏进屏幕外的深度(从脚底算起)
+const CLING_PEEK = 0.45;                // 光标靠近时多探出来的距离
+let peek = 0;
+const isClinging = () => action.type === 'cling';
+function startCling(side, y) {
+  const top = Hpx / S - BW / 2 - 0.3;
+  setAction({ type: 'cling', side, y: Math.min(top, Math.max(BW / 2 + 0.3, y)) });
+  st.air = false; st.vx = st.vy = 0;
+  window.pet?.setClinging(true);
+}
+function stopCling() {
+  // 从墙上跳下来,回到地面上活动
+  const side = action.side;
+  st.x = side < 0 ? minX() : maxX();
+  st.air = true; st.vx = -side * 3; st.vy = 4;
+  setAction({ type: 'fall' });
+  window.pet?.setClinging(false);
+}
 
 // ---------------- 行为 ----------------
 let action = { type: 'rest', t: 0, dur: 1.5 };
@@ -250,6 +294,13 @@ function pickAction() {
   if (interactive) return { type: 'rest', dur: 1 };   // 光标停在它身上时就乖乖待着,方便点
   if (!wander) return { type: 'rest', dur: 3 };
   const r = Math.random();
+  if (mood === 4) return { type: 'sleep' };                 // 额度用完:一直睡
+  if (mood === 3) {
+    // 快没电了:很少走动,大多趴着
+    if (r < 0.15) return pickWalk();
+    if (r < 0.7) return { type: 'flop', dur: rand(6, 12) };
+    return { type: 'rest', dur: rand(3, 6) };
+  }
   if (mood === 2) {
     // 累了:少走动,不蹦不跳,常趴下打盹
     if (r < 0.3) return pickWalk();
@@ -285,7 +336,8 @@ window.pet?.onCommand(cmd => {
     paused = false;
     hovering = false; interactive = false;
     canvas.classList.remove('ghost');
-    root.scale.setScalar(1); root.rotation.y = 0;
+    root.scale.setScalar(1); root.rotation.y = 0; root.rotation.z = 0;
+    window.pet?.setClinging(false);
     st.y = Hpx / S + 1; st.vx = 0; st.vy = 0; st.air = true;
     feet.forEach((f, i) => { f.x = st.x + REST_X[i]; f.y = st.y - LEG_L; f.vx = f.vy = 0; f.swing = null; });
     setAction({ type: 'fall' });
@@ -294,13 +346,22 @@ window.pet?.onCommand(cmd => {
     return;
   }
   if (action.type === 'drag' || action.type === 'leave') return;
+  if (isClinging() && ['jump', 'wave', 'dance', 'lean', 'walk', 'home'].includes(cmd)) stopCling();
   if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }
   if (cmd === 'passthrough-off') { passthrough = false; return; }
   if (cmd === 'wander-on') { wander = true; return; }
   if (cmd === 'wander-off') { wander = false; setAction({ type: 'rest', dur: 2 }); return; }
   if (cmd === 'home') { setAction({ type: 'walk', target: Wpx / S / 2 }); return; }
   if (cmd === 'walk') { setAction(pickWalk()); return; }
-  if (cmd === 'usage') { showUsage(); setAction({ type: 'present', dur: 2.4 }); return; }
+  if (cmd === 'cling') {
+    if (isClinging()) { stopCling(); return; }
+    // 往近的那边墙跳过去,撞上就贴住
+    const side = st.x < Wpx / S / 2 ? -1 : 1;
+    st.air = true; st.vx = side * 14; st.vy = 10;
+    setAction({ type: 'fall', wantCling: true });
+    return;
+  }
+  if (cmd === 'usage') { showUsage(); if (!isClinging()) setAction({ type: 'present', dur: 2.4 }); return; }
   if (cmd === 'jump') setAction({ type: 'jump', dir: Math.random() < 0.5 ? -1 : 1 });
   if (cmd === 'wave') setAction({ type: 'wave', dur: 2.4 });
   if (cmd === 'dance') setAction({ type: 'dance', dur: 4 });
@@ -378,6 +439,7 @@ canvas.addEventListener('pointermove', e => {
   const dx = e.clientX - press.px, dy = e.clientY - press.py;
   if (!press.moved && Math.hypot(dx, dy) > 4) {
     press.moved = true;
+    if (isClinging()) { window.pet?.setClinging(false); press.x0 = st.x = Math.min(maxX(), Math.max(minX(), st.x)); }
     canvas.classList.add('dragging');
     setAction({ type: 'drag' });
     st.air = true;
@@ -390,24 +452,36 @@ canvas.addEventListener('pointermove', e => {
   press.v[0] = press.v[0] * 0.6 + ((e.clientX - lx) / S / ddt) * 0.4;
   press.v[1] = press.v[1] * 0.6 + (-(e.clientY - ly) / S / ddt) * 0.4;
   press.last = [e.clientX, e.clientY, now];
+  press.lastX = e.clientX; pressSide = e.clientX < Wpx / 2 ? -1 : 1;
   const nx = Math.min(maxX(), Math.max(minX(), press.x0 + dx / S));
   const ny = Math.max(0, press.y0 - dy / S);
   st.vx = Math.max(-15, Math.min(15, (nx - st.x) / ddt));
   st.vy = Math.max(-15, Math.min(15, (ny - st.y) / ddt));
   st.x = nx; st.y = ny;
 });
+let pressSide = 1;
+const press_side = () => pressSide;
 function release() {
   if (!press) return;
   canvas.classList.remove('dragging');
   if (press.moved) {
+    const EDGE = 60;
+    if (press.lastX <= EDGE || press.lastX >= Wpx - EDGE) {
+      press = null;
+      startCling(press_side(), st.y + LEG_L);
+      return;
+    }
     st.vx = Math.max(-14, Math.min(14, press.v[0]));
     st.vy = Math.max(-10, Math.min(14, press.v[1]));
     st.air = st.y > 0.001 || st.vy > 0;
     setAction({ type: 'fall' });
   } else {
-    if (bubbleKind === 'usage') {
+    if (isClinging()) {
+      if (bubbleKind === 'usage') hideBubble(); else showUsage();
+      action.waveT = 0;
+    } else if (bubbleKind === 'usage') {
       hideBubble();
-      setAction(mood === 2 ? { type: 'wave', dur: 1.6 } : { type: 'jump', dir: 0, big: true });
+      setAction(mood === 4 ? { type: 'sleep' } : mood >= 2 ? { type: 'wave', dur: 1.6 } : { type: 'jump', dir: 0, big: true });
     } else {
       showUsage();
       setAction({ type: 'present', dur: 2.4 });
@@ -427,6 +501,9 @@ let nextBlink = 2, blinkT = -1, blinkN = 0;
 let idleLook = 0, nextIdleLook = 3;
 let landKick = 0;
 let sweatT = -1, nextSweat = 3;
+const BASE_COLOR = new THREE.Color(0xD97757), GREY = new THREE.Color(0x8E8A86);
+let tintK = 0;
+const badge = document.getElementById('badge');
 const tmp = new THREE.Vector3();
 
 function frame() {
@@ -437,10 +514,11 @@ function frame() {
 
   // ---- 1. 当前动作给出"目标姿态" ----
   // 累的时候呼吸更慢更深、眼睛半闭
-  const br = mood === 2 ? Math.sin(t * 1.4) * 0.03 : Math.sin(t * 2.3) * 0.012;
-  let bx = 0, by = br, rz = 0, squash = 1 + br;
-  let armRot = [0, 0], armDrop = mood === 2 ? [0.05, 0.05] : [0, 0];
-  let look = null, eyeOpen = mood === 2 ? 0.55 : 1, walkDir = 0;
+  // 累的时候呼吸更慢更深、眼睛半闭、手耷拉;快没电时还会微微发抖
+  const br = mood >= 2 ? Math.sin(t * 1.4) * 0.03 : Math.sin(t * 2.3) * 0.012;
+  let bx = mood === 3 ? Math.sin(t * 47) * 0.006 : 0, by = br, rz = 0, squash = 1 + br;
+  let armRot = [0, 0], armDrop = mood >= 2 ? [0.05 + (mood - 2) * 0.04, 0.05 + (mood - 2) * 0.04] : [0, 0];
+  let look = null, eyeOpen = [1, 1, 0.55, 0.4, 0.1][mood], walkDir = 0;
   let footLift = null;                      // 跳舞时直接指定抬脚高度
   let airKick = 0;                          // 被拎起来时的蹬腿幅度
 
@@ -452,7 +530,7 @@ function frame() {
   else if (a.type === 'walk') {
     const dx = a.target - st.x;
     walkDir = Math.sign(dx);
-    const vmax = 2.3 * [1, 0.85, 0.55][mood];                       // 累了走得慢
+    const vmax = 2.3 * [1, 0.85, 0.55, 0.4, 0.4][mood];             // 越累走得越慢
     const v = walkDir * Math.min(vmax, Math.abs(dx) * 2.2 + 0.25);  // 起步、到站自然减速
     st.vx = v;
     st.x += v * dt;
@@ -550,6 +628,31 @@ function frame() {
     if (p > a.dur) finish();
   }
 
+  else if (a.type === 'cling') {
+    // 扒在墙上偷看:光标靠近 / 能点时多探出来一点;累了就闭眼趴着
+    const wantPeek = interactive || hovering || bubbleKind ? CLING_PEEK : 0;
+    peek += (wantPeek - peek) * Math.min(1, dt * 6);
+    st.x = a.side < 0 ? -CLING_HIDE + peek : Wpx / S + CLING_HIDE - peek;
+    st.y = a.y; st.vx = st.vy = 0;
+    armRot = [-0.15, -0.15];
+    if (a.waveT !== undefined) {                       // 被点了:探出来招招手
+      a.waveT += dt;
+      armRot[a.side < 0 ? 1 : 0] = 1.0 + Math.sin(a.waveT * 11) * 0.3;
+      if (a.waveT > 1.6) delete a.waveT;
+    }
+    look = interactive ? null : -a.side;               // 平时朝屏幕里面看
+    if (mood === 4) eyeOpen = 0.06;
+  }
+
+  else if (a.type === 'sleep') {
+    // 额度用完:趴着睡,直到额度恢复
+    by = -LEG_L * 0.55 + Math.sin(t * 0.9) * 0.03;
+    squash = 0.94; eyeOpen = 0.06; armRot = [-0.32, -0.32]; look = 0;
+    if (!a.nextZ) a.nextZ = 1.5;
+    if (p > a.nextZ) { a.nextZ = p + 14; if (bubbleKind === null) say('Zzz…', 3); }
+    if (mood < 4 && p > 1) finish();
+  }
+
   else if (a.type === 'leave') {
     if (p < 0.14) { by = -0.16; squash = 0.85; armDrop = [0.12, 0.12]; eyeOpen = 0.6; }
     else {
@@ -579,8 +682,13 @@ function frame() {
     st.vy -= G * dt;
     st.x += st.vx * dt;
     st.y += st.vy * dt;
-    if (st.x < minX()) { st.x = minX(); st.vx = Math.abs(st.vx) * 0.5; }
-    if (st.x > maxX()) { st.x = maxX(); st.vx = -Math.abs(st.vx) * 0.5; }
+    const wallHit = st.x < minX() ? -1 : st.x > maxX() ? 1 : 0;
+    if (wallHit && (a.wantCling || Math.abs(st.vx) > 9) && a.type !== 'drag') {
+      startCling(wallHit, st.y + LEG_L);
+    } else {
+      if (st.x < minX()) { st.x = minX(); st.vx = Math.abs(st.vx) * 0.5; }
+      if (st.x > maxX()) { st.x = maxX(); st.vx = -Math.abs(st.vx) * 0.5; }
+    }
     if (st.y <= 0) {
       const impact = -st.vy;
       st.y = 0;
@@ -619,11 +727,16 @@ function frame() {
     arm.g.position.y = ARM_Y - sp.armDrop[i].step(armDrop[i], dt);
   });
   root.position.set(st.x, st.y, 0);
+  // 注意用 action(当前动作)而不是 a:撞墙贴上的那一帧,a 还是之前的 fall,没有 side
+  const rzTarget = isClinging() ? action.side * Math.PI / 2 : 0;
+  root.rotation.z += (rzTarget - root.rotation.z) * Math.min(1, dt * 10);
+  if (!Number.isFinite(root.rotation.z)) root.rotation.z = rzTarget;   // 兜底:防止一次异常值让 Clawd 永久消失
   bodyG.updateMatrix();
 
   // ---- 5. 脚:落地时钉住、按需迈步;在空中时挂在髋下面晃荡 ----
   const hips = REST_X.map(rx => tmp.set(rx, 0.12, 0).applyMatrix4(bodyG.matrix).clone().add(root.position));
   feet.forEach((f, i) => {
+    if (isClinging()) { f.x = st.x + REST_X[i]; f.y = st.y; f.vx = f.vy = 0; f.swing = null; return; }
     const hip = hips[i];
     if (st.air) {
       f.swing = null;
@@ -708,27 +821,46 @@ function frame() {
   sun.position.set(st.x - 2, 9, 4); sun.target.position.set(st.x, 0, 0);
   rim.position.set(st.x + 3, 4, -5); rim.target.position.set(st.x, 1, 0);
   shadowPlane.position.set(st.x, 0, 0);
-  shadowPlane.material.opacity = 0.18 * Math.max(0, 1 - st.y / 8);
+  shadowPlane.material.opacity = isClinging() ? 0 : 0.18 * Math.max(0, 1 - st.y / 8);
 
   canvasLeft = Math.round(st.x * S - CW / 2);
   canvasTop = Math.round(Hpx - st.y * S - (CH - GROUND_PX));
   canvas.style.transform = `translate(${canvasLeft}px, ${canvasTop}px)`;
 
   // ---- 8. 汗珠:忙时偶尔、累时经常从额头侧边滑下来 ----
-  if (mood > 0 && sweatT < 0 && t > nextSweat && a.type !== 'drag') sweatT = t;
+  if (mood > 0 && mood < 4 && sweatT < 0 && t > nextSweat && a.type !== 'drag' && a.type !== 'sleep') sweatT = t;
   if (sweatT >= 0) {
     const k = (t - sweatT) / 1.1;
     sweat.position.set(BW / 2 - 0.28, BH * 0.92 - k * 0.5, BD / 2 + 0.04);
     sweatMat.opacity = k < 0.15 ? k / 0.15 : Math.max(0, 1 - (k - 0.15) / 0.85);
-    if (k >= 1) { sweatT = -1; sweatMat.opacity = 0; nextSweat = t + (mood === 2 ? rand(2, 4) : rand(5, 9)); }
+    if (k >= 1) { sweatT = -1; sweatMat.opacity = 0; nextSweat = t + [0, rand(5, 9), rand(2, 4), rand(1, 2.5), 99][mood]; }
   }
 
-  // ---- 9. 头顶气泡跟着 Clawd 走,不超出屏幕 ----
+  // ---- 9. 额度越少,身体颜色越灰暗 ----
+  const fade = [0, 0, 0.08, 0.35, 0.6][mood];
+  tintK += (fade - tintK) * Math.min(1, dt * 2);
+  orange.color.copy(BASE_COLOR).lerp(GREY, tintK);
+
+  // ---- 10. 头顶电量标:剩余 ≤20% 时常驻(气泡开着时让位) ----
+  if (quota && mood >= 2 && !bubbleKind && !paused) {
+    const r = Math.max(0, Math.round(quota.rem));
+    const text = mood === 4 ? `🪫 0% · ${fmtReset(quota.resetsAt).replace('重置', '恢复')}` : `${mood === 3 ? '🪫' : '🔋'} ${r}%`;
+    if (badge.textContent !== text) badge.textContent = text;
+    badge.className = 'show lv' + mood;
+    const bw = badge.offsetWidth, bh = badge.offsetHeight;
+    const px = isClinging() ? (action.side < 0 ? 90 : Wpx - 90) : st.x * S;
+    const headY = isClinging() ? Hpx - (st.y + BW / 2 + 0.2) * S : Hpx - (st.y + LEG_L + BY + BH * Q + 0.15) * S;
+    badge.style.transform = `translate(${Math.round(Math.min(Wpx - bw - 8, Math.max(8, px - bw / 2)))}px, ${Math.round(Math.max(8, headY - bh - 6))}px)`;
+  } else if (badge.className) {
+    badge.className = '';
+  }
+
+  // ---- 11. 头顶气泡跟着 Clawd 走,不超出屏幕 ----
   if (bubbleKind && nowSec() > bubbleUntil) hideBubble();
   if (bubbleKind) {
     const bw = bubble.offsetWidth, bh = bubble.offsetHeight;
-    const px = st.x * S;
-    const headY = Hpx - (st.y + LEG_L + BY + BH * Q + 0.2) * S;
+    const px = isClinging() ? (action.side < 0 ? 90 : Wpx - 90) : st.x * S;
+    const headY = isClinging() ? Hpx - (st.y + BW / 2 + 0.3) * S : Hpx - (st.y + LEG_L + BY + BH * Q + 0.2) * S;
     const left = Math.round(Math.min(Wpx - bw - 8, Math.max(8, px - bw / 2)));
     const top = Math.round(Math.max(8, headY - bh - 14));
     bubble.style.transform = `translate(${left}px, ${top}px)`;

@@ -17,13 +17,25 @@ let tray = null;
 let hidden = false;     // Clawd 是否被收起
 let wander = true;      // 是否自由活动
 let passthrough = false; // 完全穿透:Clawd 完全不接收鼠标,只能通过菜单互动
+let clinging = false;    // 是否贴在屏幕边上
 
 const workArea = () => screen.getPrimaryDisplay().workArea;
 // ---------- 用量:每 30 秒增量扫描一次 Claude Code 的本地会话记录 ----------
 const tracker = new UsageTracker();
 function pushUsage() {
   if (!win || win.isDestroyed()) return;
-  try { tracker.scan(); win.webContents.send('usage', tracker.summary()); } catch (e) { console.error('用量统计失败', e); }
+  try {
+    tracker.scan();
+    const sum = tracker.summary();
+    // 开发自测:CLAWD_FAKE_QUOTA=7 npm start —— 假装 5 小时额度只剩 7%(只在未打包时生效)
+    const fake = !app.isPackaged && process.env.CLAWD_FAKE_QUOTA;
+    if (fake !== undefined && fake !== '') {
+      const rem = Number(fake);
+      sum.limits = { fiveHour: { used: 100 - rem, remaining: rem, resetsAt: Date.now() + 90 * 60000 },
+        sevenDay: (sum.limits && sum.limits.sevenDay) || null, others: [], savedAt: Date.now() };
+    }
+    win.webContents.send('usage', sum);
+  } catch (e) { console.error('用量统计失败', e); }
 }
 // 订阅额度:调用 `claude -p "/usage"` 查询(约 5 秒,不消耗额度)。每 5 分钟一次;点开气泡时若超过 1 分钟也刷新
 let limitsAt = 0;
@@ -97,6 +109,7 @@ function minimize() {
   send('minimize');
   refreshMenus();
 }
+ipcMain.on('clinging', (_e, v) => { clinging = !!v; refreshMenus(); });
 ipcMain.on('hidden-done', () => { if (hidden && win) win.hide(); });
 
 function restore() {
@@ -132,6 +145,7 @@ function menuTemplate({ forDock = false } = {}) {
         send(passthrough ? 'passthrough-on' : 'passthrough-off');
         refreshMenus();
       } },
+    { label: clinging ? '离开边缘' : '贴到屏幕边上', click: act('cling') },
     { label: '回到屏幕中间', click: act('home') },
   ];
   if (app.isPackaged) {
@@ -166,8 +180,10 @@ app.whenReady().then(() => {
   // 开发自测(只在 npm start 时生效):
   //   CLAWD_SELFTEST=1     —— 4 秒后收起,8 秒后放出
   //   CLAWD_SELFTEST=usage —— 3 秒后弹出用量气泡
+  //   CLAWD_SELFTEST=cling —— 3 秒后贴到屏幕边上
   const selftest = !app.isPackaged && process.env.CLAWD_SELFTEST;
   if (selftest === 'usage') setTimeout(() => { pushUsage(); send('usage'); }, 3000);
+  else if (selftest === 'cling') setTimeout(() => send('cling'), 3000);
   else if (selftest) {
     setTimeout(minimize, 4000);
     setTimeout(restore, 8000);

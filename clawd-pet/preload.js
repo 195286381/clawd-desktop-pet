@@ -7,4 +7,5 @@ contextBridge.exposeInMainWorld('pet', {
   hiddenDone: () => ipcRenderer.send('hidden-done'),
   onUsage: (cb) => ipcRenderer.on('usage', (_e, u) => cb(u)),
   requestUsage: () => ipcRenderer.send('request-usage'),
+  setClinging: (v) => ipcRenderer.send('clinging', v),
 });
