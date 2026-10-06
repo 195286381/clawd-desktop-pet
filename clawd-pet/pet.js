@@ -1107,15 +1107,18 @@ function frame() {
     const r = Math.max(0, Math.round(L.fiveHour ? L.fiveHour.remaining : 100));   // 5 小时窗口过期 = 已重置,满格
     const hl = levelOf(r), cells = Math.min(10, Math.ceil(r / 10));
     const vert = isClinging();
-    const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt).replace('重置', '恢复')}` : hl >= 2 ? `${r}%` : '';
+    const nums = t < hpHoverUntil;   // 鼠标悬停时(移开后 1.5 秒内)把两个百分比都显示出来
+    const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt).replace('重置', '恢复')}` : hl >= 2 || nums ? `${r}%` : '';
     const wk = L.sevenDay ? Math.max(0, Math.min(100, Math.round(L.sevenDay.remaining))) : null;
-    const key = `${hl}|${cells}|${text}|${vert}|${wk}`;
+    const pct = (v, cls = '') => vert ? `<b class="${cls}"><span>${v}</span><span>%</span></b>` : `<b class="${cls}">${v}%</b>`;
+    const key = `${hl}|${cells}|${text}|${vert}|${wk}|${nums}`;
     if (badge.dataset.key !== key) {
       badge.dataset.key = key;
       badge.innerHTML = '<div class="hp">' + Array.from({ length: 10 }, (_, i) => `<i${i < cells ? ' class="on"' : ''}></i>`).join('') + '</div>'
-        + (!text ? '' : vert ? `<b><span>${r}</span><span>%</span></b>` : `<b>${text}</b>`)
+        + (!text ? '' : vert ? pct(r) : `<b>${text}</b>`)
         + (wk === null ? '' : `<svg class="ring lv${levelOf(wk)}" viewBox="0 0 16 16"><circle class="track" cx="8" cy="8" r="6"/>`
-          + `<circle class="arc" cx="8" cy="8" r="6" pathLength="100" stroke-dasharray="${wk} 100" transform="rotate(-90 8 8)"/></svg>`);
+          + `<circle class="arc" cx="8" cy="8" r="6" pathLength="100" stroke-dasharray="${wk} 100" transform="rotate(-90 8 8)"/></svg>`
+          + (nums ? pct(wk, `wk lv${levelOf(wk)}`) : ''));
     }
     badge.className = 'show lv' + hl + (vert ? ' vert' : '');
     const bw = badge.offsetWidth, bh = badge.offsetHeight, an = petAnchor();
