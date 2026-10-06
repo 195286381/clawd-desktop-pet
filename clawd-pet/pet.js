@@ -10,9 +10,11 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 // ---------------- 画布与相机 ----------------
-const S = 40;                      // 1 个世界单位 = 40 屏幕像素
-const CW = 340, CH = 340;          // 跟着 Clawd 走的小画布
-const GROUND_PX = 70;              // Clawd 脚底在画布里离底边的距离
+// 大小:菜单里选,主进程通过 ?scale= 传进来;只缩放 3D 的 Clawd,气泡和血条的文字保持原大小
+const SCALE = Math.min(2, Math.max(0.5, Number(new URLSearchParams(location.search).get('scale')) || 1));
+const S = 40 * SCALE;              // 1 个世界单位 = 40 屏幕像素(乘以大小)
+const CW = Math.round(340 * SCALE), CH = CW;   // 跟着 Clawd 走的小画布
+const GROUND_PX = 70 * SCALE;      // Clawd 脚底在画布里离底边的距离
 const YAW = 0.34, PITCH = 0.2;     // 略微侧着、俯视一点,露出侧面和顶面
 
 const canvas = document.getElementById('c');
@@ -48,14 +50,16 @@ shadowPlane.rotation.x = -Math.PI / 2;
 shadowPlane.receiveShadow = true;
 scene.add(shadowPlane);
 
-// ---------------- 模型(尺寸取自官方动画的比例) ----------------
-const U = 0.33;                   // 一条腿的宽度
-const BW = 7.7 * U, BH = 4.5 * U, BD = 3.0 * U;
-const LEG_L = 2.1 * U, LEG_W = U;
-const EYE = 0.85 * U;
-const EYE_X = BW / 2 - 1.55 * U, EYE_Y = BH * 0.58;
-const ARM_Y = BH * 0.6, ARM_OUT = 1.0 * U, ARM_H = 1.9 * U, ARM_TUCK = 0.35;
-const REST_X = [0, 1.91, 4.82, 6.73].map(e => -BW / 2 + (e + 0.5) * U);   // 四条腿的 x
+// ---------------- 模型(比例对照官方像素形象和 3D 打印的 Clawd) ----------------
+// 方方正正、厚实的身体;短粗的方块腿(中间两条间距更大);手是扁平长板;眼睛靠外侧
+// 整体大小和上一版持平:宽约 2.5、总高(腿 + 身子)约 2.15 个世界单位
+const BW = 2.5;                                   // 身体宽
+const BH = BW * 0.6, BD = BW * 0.45;              // 高、厚
+const LEG_L = BH * 0.42, LEG_W = BW * 0.15;       // 腿比参考图长一些,走起来更灵动
+const EYE = 0.28;                                 // 眼睛大小、间距、高度都沿用上一版(眼神更灵动)
+const EYE_X = BW / 2 - 0.51, EYE_Y = BH * 0.58;
+const ARM_Y = BH * 0.52, ARM_OUT = BW * 0.13, ARM_H = BH * 0.3, ARM_TUCK = 0.35;
+const REST_X = [0.085, 0.33, 0.67, 0.915].map(f => -BW / 2 + f * BW);   // 四条腿的 x
 const GROUP = [0, 1, 0, 1];       // 交替迈步的两组脚
 
 const orange = new THREE.MeshPhysicalMaterial({ color: 0xD97757, roughness: 0.5, clearcoat: 0.2, clearcoatRoughness: 0.45 });
@@ -73,7 +77,7 @@ const root = new THREE.Group();          // 脚底中心;在世界里移动
 scene.add(root);
 const bodyG = new THREE.Group();         // 原点在身体底面中心:挤压/倾斜都以底面为轴
 root.add(bodyG);
-const bodyMesh = box(bodyG, orange, [0, BH / 2, 0], [BW, BH, BD], 0.06);
+const bodyMesh = box(bodyG, orange, [0, BH / 2, 0], [BW, BH, BD], 0.03);
 
 const eyes = [-1, 1].map(s => {
   const g = new THREE.Group();
@@ -88,11 +92,11 @@ const arms = [-1, 1].map(s => {
   const g = new THREE.Group();
   g.position.set(s * BW / 2, ARM_Y, 0);
   bodyG.add(g);
-  box(g, orange, [s * (ARM_OUT - ARM_TUCK) / 2, 0, 0], [ARM_OUT + ARM_TUCK, ARM_H, BD * 0.62], 0.05);
+  box(g, orange, [s * (ARM_OUT - ARM_TUCK) / 2, 0, 0], [ARM_OUT + ARM_TUCK, ARM_H, BD * 0.8], 0.025);
   return { g, s };
 });
 
-const legGeo = new RoundedBoxGeometry(LEG_W, 1, LEG_W, 2, 0.03);
+const legGeo = new RoundedBoxGeometry(LEG_W, 1, LEG_W, 2, 0.02);
 legGeo.translate(0, 0.5, 0);             // 底端在原点,沿 +y 伸长
 const legs = REST_X.map(() => {
   const m = new THREE.Mesh(legGeo, orange);
@@ -100,6 +104,128 @@ const legs = REST_X.map(() => {
   root.add(m);
   return m;
 });
+
+// ---------------- 表情 ----------------
+// 像素风:每个表情用小方块拼出来。平时是方眼睛(会眨眼、累了眯眼);
+// 开心 > <、高兴 ^ ^、晕了 x x、吃惊 o o、耍酷戴像素墨镜,
+// 还有被摸时的爱心眼 + 腮红、被连戳的不耐烦、庆祝的星星眼、烧钱的 $ $、额度用完的哭哭、偶尔眨单眼。
+const PX = EYE / 3.6;   // 5 格宽的表情约 1.4 个眼睛宽,眼睛转到最边也离身体边缘有空隙
+const pxGeo = new THREE.BoxGeometry(PX, PX, 0.02);
+const white = new THREE.MeshStandardMaterial({ color: 0xF4EFE6, roughness: 0.4 });
+const flat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45 });
+const FACE_MAT = { X: dark, W: white, R: flat(0xC8453F), G: flat(0xF2C14E), M: flat(0x4E8A5A), B: flat(0x8FD3FF) };
+function pixels(parent, rows, size, geo, mats, z = 0) {
+  const g = new THREE.Group();
+  const w = rows[0].length, h = rows.length;
+  rows.forEach((row, y) => [...row].forEach((c, x) => {
+    if (c === '.') return;
+    const m = new THREE.Mesh(geo, mats[c]);
+    m.position.set((x - (w - 1) / 2) * size, ((h - 1) / 2 - y) * size, z);
+    g.add(m);
+  }));
+  g.visible = false;
+  parent.add(g);
+  return g;
+}
+const mirror = rows => rows.map(r => [...r].reverse().join(''));
+// 每个表情给左眼的像素图(右眼自动镜像);写成 { L, R } 时左右分开给,null 表示那只眼保持普通方眼
+const FACES = {
+  happy:     ['X..', '.X.', '..X', '.X.', 'X..'],            // 左眼 >,右眼镜像成 <
+  joy:       ['..X..', '.X.X.', 'X...X'],
+  dizzy:     ['X...X', '.X.X.', '..X..', '.X.X.', 'X...X'],
+  surprised: ['.XXX.', 'X...X', 'X...X', 'X...X', '.XXX.'],
+  love:      ['.R.R.', 'RRRRR', 'RRRRR', '.RRR.', '..R..'],
+  star:      ['..G..', '..G..', 'GGGGG', '.GGG.', '.G.G.'],
+  money:     ['.M.', 'MMM', 'M..', 'MMM', '..M', 'MMM', '.M.'],
+  annoyed:   ['XXXX', '..XX'],
+  cry:       ['XXX', '.X.', '.B.', '...', '.B.'],
+  wink:      { L: null, R: ['XXX'] },
+};
+eyes.forEach(e => {
+  e.faces = {};
+  for (const [k, f] of Object.entries(FACES)) {
+    const rows = Array.isArray(f) ? (e.s < 0 ? f : mirror(f)) : (e.s < 0 ? f.L : f.R);
+    if (rows) e.faces[k] = pixels(e.g, rows, PX, pxGeo, FACE_MAT, -0.004);
+  }
+});
+// 腮红:眼睛外下方两小块粉色
+const blushMat = new THREE.MeshStandardMaterial({ color: 0xF2A08F, roughness: 0.6, transparent: true, opacity: 0.85 });
+const blush = new THREE.Group();
+[-1, 1].forEach(s => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(EYE * 1.1, EYE * 0.4, 0.02), blushMat);
+  m.position.set(s * (EYE_X + EYE * 0.35), EYE_Y - EYE * 1.25, BD / 2 + 0.008);
+  blush.add(m);
+});
+blush.visible = false;
+bodyG.add(blush);
+// 像素墨镜:横跨两只眼睛,镜片中心对准眼睛
+const SG_LENS = ['XXXXXX', 'XWXWXX', 'XXWXWX', '.XXXX.'];
+const SG_GAP = 11, SG_Q = 2 * EYE_X / (SG_LENS[0].length + SG_GAP);
+const sgRows = SG_LENS.map((r, i) => i === 0 ? 'X'.repeat(r.length * 2 + SG_GAP) : r + '.'.repeat(SG_GAP) + r);
+const sunglasses = pixels(bodyG, sgRows, SG_Q, new THREE.BoxGeometry(SG_Q, SG_Q, 0.03), { X: dark, W: white });
+sunglasses.position.set(0, EYE_Y + SG_Q * 0.4, BD / 2 + 0.01);
+let faceOverride = null, faceOverrideUntil = 0, dizzyUntil = 0;
+// 临时换个表情,secs 秒后恢复
+function flashFace(face, secs) { faceOverride = face; faceOverrideUntil = clock.elapsedTime + secs; }
+function setFace(face) {
+  const glasses = face === 'cool';
+  sunglasses.visible = glasses;
+  blush.visible = face === 'love' || face === 'happy';
+  eyes.forEach(e => {
+    e.m.visible = !glasses && !e.faces[face];
+    for (const [k, g] of Object.entries(e.faces)) g.visible = k === face;
+  });
+}
+
+// ---------------- 道具 ----------------
+// 同样的方块风格,看场景自动出现:睡觉戴睡帽、庆祝戴派对帽、跳舞可能戴耳机、
+// 你在用 Claude Code 时摆台小电脑陪你写、早上捧杯咖啡。
+const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55 });
+const PM = { cream: mat(0xF4EFE6), indigo: mat(0x5E6C9E), ochre: mat(0xD4A24C), verte: mat(0x7FA383), gold: mat(0xF2C14E),
+  grey: mat(0x55514C), steel: mat(0xB9B4AC), coffee: mat(0x5A3A26), orange };
+const PROPS = {};
+function prop(name, parent) { const g = new THREE.Group(); g.visible = false; parent.add(g); PROPS[name] = g; return g; }
+{ // 睡帽:一层层往一边耷拉的长尖帽 + 白帽檐 + 白绒球
+  const g = prop('nightcap', bodyG);
+  box(g, PM.cream, [0, BH + 0.08, 0], [BW * 0.36, 0.16, BW * 0.36], 0.05);
+  // [宽, x, y]:先往上收尖,再往一侧弯下来,绒球垂在旁边
+  [[0.6, 0, 0.24], [0.48, 0.04, 0.44], [0.37, 0.12, 0.62], [0.28, 0.27, 0.76], [0.21, 0.45, 0.8], [0.16, 0.62, 0.72]].forEach(([w, x, y]) =>
+    box(g, PM.indigo, [x, BH + y, 0], [BW * w * 0.5, 0.2, BW * w * 0.5], 0.03));
+  box(g, PM.cream, [0.75, BH + 0.55, 0], [0.26, 0.26, 0.26], 0.08);
+}
+{ // 派对帽:土黄 / 绿土相间的方块尖塔 + 金色顶球,歪戴
+  const g = prop('party', bodyG);
+  g.position.set(BW * 0.15, BH, 0); g.rotation.z = -0.2;
+  [0.8, 0.62, 0.46, 0.32, 0.2].forEach((w, i) => box(g, i % 2 ? PM.verte : PM.ochre, [0, 0.09 + i * 0.17, 0], [w, 0.17, w], 0.02));
+  box(g, PM.gold, [0, 0.98, 0], [0.2, 0.2, 0.2], 0.06);
+}
+{ // 耳机:头顶一道粗箍,两侧大耳罩(带橙色亮片),耳罩在手臂上方
+  const g = prop('headphones', bodyG);
+  box(g, PM.grey, [0, BH + 0.16, 0], [BW * 0.92, 0.1, 0.2], 0.03);
+  [-1, 1].forEach(s => {
+    box(g, PM.grey, [s * BW * 0.47, BH + 0.02, 0], [0.1, 0.3, 0.2], 0.03);
+    box(g, PM.grey, [s * (BW / 2 + 0.08), BH * 0.8, 0], [0.18, 0.5, 0.5], 0.05);
+    box(g, PM.orange, [s * (BW / 2 + 0.175), BH * 0.8, 0], [0.02, 0.26, 0.26], 0.01);
+  });
+}
+{ // 小笔记本电脑:抱在身前打字,屏幕朝着 Clawd,背面朝你,背面有个橙色小方标
+  const g = prop('laptop', bodyG);
+  g.position.set(0, BH * 0.04, BD / 2 + 0.32);
+  box(g, PM.steel, [0, 0.03, -0.05], [BW * 0.72, 0.06, 0.55], 0.02);
+  const lid = new THREE.Group(); lid.position.set(0, 0.06, 0.22); lid.rotation.x = 0.12; g.add(lid);
+  box(lid, PM.steel, [0, 0.3, 0], [BW * 0.72, 0.6, 0.05], 0.02);
+  box(lid, PM.orange, [0, 0.32, 0.03], [0.16, 0.16, 0.01], 0.01);
+}
+{ // 咖啡杯:捧在胸前,冒两缕像素热气
+  const g = prop('coffee', bodyG);
+  g.position.set(BW * 0.3, BH * 0.12, BD / 2 + 0.2);
+  box(g, PM.cream, [0, 0, 0], [0.34, 0.4, 0.34], 0.05);
+  box(g, PM.coffee, [0, 0.195, 0], [0.27, 0.02, 0.27], 0.005);
+  box(g, PM.cream, [0.21, 0.02, 0], [0.09, 0.2, 0.07], 0.025);
+  [[-0.05, 0.29], [0.02, 0.36], [0.07, 0.29]].forEach(([x, y]) => box(g, PM.cream, [x, y, 0], [0.05, 0.05, 0.05], 0.01));
+}
+let curProp = null, propOverride = null, propOverrideUntil = 0;
+function setProp(name) { for (const [k, g] of Object.entries(PROPS)) g.visible = k === name; }
 
 // 汗珠:用量多的时候从额头侧边滑下来
 const sweatMat = new THREE.MeshStandardMaterial({ color: 0x8fd3ff, roughness: 0.1, transparent: true, opacity: 0 });
@@ -248,11 +374,11 @@ window.pet?.onUsage(u => {
       if (m === 1) say(`忙起来啦 💦<br>${quotaLine()}`, 4);
       if (m === 2) say(`有点累了… 💦<br>${quotaLine()}`, 5);
       if (m === 3) { say(`⚠️ 快没电了！${quotaLine()}<br>省着点用～ ${quota ? fmtReset(quota.resetsAt) : ''}`, 7); lastNag = nowSec(); }
-      if (m === 4) { say(`额度用完啦… ${quota ? fmtReset(quota.resetsAt).replace('重置', '恢复') : ''}<br>我先睡会 💤`, 7); if (!isClinging()) setAction({ type: 'sleep' }); }
+      if (m === 4) { flashFace('cry', 3); say(`额度用完啦… ${quota ? fmtReset(quota.resetsAt).replace('重置', '恢复') : ''}<br>我先睡会 💤`, 7); if (!isClinging()) setAction({ type: 'sleep' }); }
     } else if (prev >= 2 && m <= 1) {
       // 额度重置了:醒来庆祝
       say('额度恢复啦！🎉', 4);
-      if (!isClinging()) setAction({ type: 'dance', dur: 3 });
+      if (!isClinging()) setAction({ type: 'dance', dur: 3, face: 'star' }); else flashFace('star', 3);
     } else if (m === 3 && nowSec() - lastNag > 15 * 60) {
       say(`⚠️ ${quotaLine()}，省着点用～`, 5);
       lastNag = nowSec();
@@ -304,6 +430,7 @@ function chatter(force = false) {
   for (let i = 0; i < 5 && (!line || line === lastChat); i++) { const pool = pools[Math.floor(Math.random() * pools.length)]; line = pool[Math.floor(Math.random() * pool.length)]; }
   lastChat = line;
   say(line, 3.5, 'chat');
+  if (line.includes('烧了')) flashFace('money', 3.5);
   if (!isClinging() && action.type !== 'walk' && Math.random() < 0.3) setAction({ type: 'wave', dur: 1.2 });
 }
 
@@ -405,6 +532,8 @@ window.pet?.onCommand(cmd => {
     return;
   }
   if (cmd === 'chat') { chatter(true); return; }
+  if (cmd.startsWith('face:')) { flashFace(cmd.slice(5), 6); return; }
+  if (cmd.startsWith('prop:')) { propOverride = cmd.slice(5); propOverrideUntil = clock.elapsedTime + 6; return; }
   if (cmd === 'usage') { showUsage(); if (!isClinging()) setAction({ type: 'present', dur: 2.4 }); return; }
   if (cmd === 'jump') setAction({ type: 'jump', dir: Math.random() < 0.5 ? -1 : 1 });
   if (cmd === 'wave') setAction({ type: 'wave', dur: 2.4 });
@@ -505,6 +634,7 @@ canvas.addEventListener('pointermove', e => {
 });
 let pressSide = 1;
 const press_side = () => pressSide;
+let pokes = [];
 function release() {
   if (!press) return;
   canvas.classList.remove('dragging');
@@ -520,6 +650,15 @@ function release() {
     st.air = st.y > 0.001 || st.vy > 0;
     setAction({ type: 'fall' });
   } else {
+    // 1.5 秒内连戳 4 下:不耐烦
+    const now = nowSec();
+    pokes = pokes.filter(x => now - x < 1.5); pokes.push(now);
+    if (pokes.length >= 4) {
+      pokes = [];
+      hideBubble(); say('别戳啦！😤', 2); flashFace('annoyed', 2.5);
+      press = null;
+      return;
+    }
     if (isClinging()) {
       if (bubbleKind === 'usage') hideBubble(); else showUsage();
       action.waveT = 0;
@@ -544,18 +683,20 @@ const clock = new THREE.Clock();
 let nextBlink = 2, blinkT = -1, blinkN = 0;
 let idleLook = 0, nextIdleLook = 3;
 let landKick = 0;
+let curFace = 'normal';
 let sweatT = -1, nextSweat = 3;
 // 每档的身体颜色:越累越暗淡,额度用完时变成灰色(直接混灰会发脏)
 const BODY_COLOR = [0xD97757, 0xD97757, 0xCB7556, 0xB5735F, 0x9A9894].map(c => new THREE.Color(c));
 const badge = document.getElementById('badge');
 const tmp = new THREE.Vector3();
-// Clawd 身体在屏幕上的可见范围(把身体包围盒投影到屏幕上;贴边时只算露出来的那部分)。
+// Clawd 身体(连同身上的道具)在屏幕上的可见范围(把包围盒投影到屏幕上;贴边时只算露出来的那部分)。
 // 血条和气泡都挂在它的顶边中点上,不管是站着还是转过来趴在墙上都对得上。
 const bodyBox = new THREE.Box3(), corner = new THREE.Vector3();
 function petAnchor() {
   root.updateMatrixWorld(true);
   camera.updateMatrixWorld();
   bodyBox.setFromObject(bodyMesh);
+  for (const g of Object.values(PROPS)) if (g.visible) bodyBox.expandByObject(g);   // 戴着帽子等道具时,血条和气泡要让到道具上面
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (let i = 0; i < 8; i++) {
     corner.set(i & 1 ? bodyBox.max.x : bodyBox.min.x, i & 2 ? bodyBox.max.y : bodyBox.min.y, i & 4 ? bodyBox.max.z : bodyBox.min.z).project(camera);
@@ -752,7 +893,7 @@ function frame() {
     if (st.y <= 0) {
       const impact = -st.vy;
       st.y = 0;
-      if (impact > 13) { st.vy = impact * 0.28; st.vx *= 0.6; }   // 摔得重会弹一下
+      if (impact > 13) { st.vy = impact * 0.28; st.vx *= 0.6; dizzyUntil = t + 1.8; }   // 摔得重会弹一下,还会晕一会
       else { st.vy = 0; st.vx = 0; st.air = false; }
       // 落地:身体压扁后果冻回弹,手往下"弹"一下
       sp.squash.x = Math.max(0.68, 1 - impact * 0.02); sp.squash.v = 0;
@@ -866,11 +1007,42 @@ function frame() {
     blink = b < 1 ? Math.abs(1 - 2 * b) * 0.9 + 0.1 : 1;
     if (b >= 1.5) { if (--blinkN > 0) blinkT = t; else { blinkT = -1; nextBlink = t + rand(2, 5); } }
   }
+  // 当前表情:由动作决定(跳舞时有一定概率戴墨镜)
+  let face = 'normal';
+  const petting = hovering && interactive && !press && nowSec() - hoverSince > 2.5;   // 光标停在身上不动 = 在摸它
+  if (petting && !a.purred) { a.purred = true; if (!bubbleKind) say('嘿嘿～ 好舒服 💗', 2.5); }
+  if (a.type === 'drag') face = 'surprised';
+  else if (t < dizzyUntil) face = 'dizzy';
+  else if (faceOverride && t < faceOverrideUntil) face = faceOverride;
+  else if (petting) face = 'love';
+  else if (a.type === 'dance') { if (a.cool === undefined) a.cool = Math.random() < 0.4; face = a.face || (a.cool ? 'cool' : 'happy'); }
+  else if (a.type === 'jump' && a.big) face = 'happy';
+  else if (a.type === 'wave' || a.type === 'present') face = mood >= 2 ? 'normal' : 'joy';
+  else if (a.type === 'rest' && mood < 2) {
+    // 闲着时偶尔眨一只眼
+    if (a.winkAt === undefined) a.winkAt = Math.random() < 0.18 ? rand(0.3, 1.2) : -1;
+    if (a.winkAt >= 0 && p > a.winkAt && p < a.winkAt + 0.55) face = 'wink';
+  }
+  if (face !== curFace) { curFace = face; setFace(face); }
+
+  // 当前道具:跟着动作/场景走,每段动作开始时决定一次
+  if (a.prop === undefined) {
+    const h = new Date().getHours();
+    const coding = usage && usage.lastActive && Date.now() - usage.lastActive < 3 * 60e3;
+    a.prop = null;
+    if (a.type === 'sleep') a.prop = 'nightcap';
+    else if (a.type === 'dance') a.prop = a.face === 'star' ? 'party' : a.cool ? null : (Math.random() < 0.45 ? 'headphones' : Math.random() < 0.5 ? 'party' : null);
+    else if (a.type === 'rest' && mood < 3 && coding && Math.random() < 0.55) a.prop = 'laptop';
+    else if (a.type === 'rest' && mood < 3 && h >= 6 && h < 11 && Math.random() < 0.4) a.prop = 'coffee';
+  }
+  const want = propOverride && t < propOverrideUntil ? propOverride : a.prop;
+  if (want !== curProp) { curProp = want; setProp(want); }
   eyes.forEach(e => {
     e.g.position.x = e.s * EYE_X + EX * 0.16;
     e.g.position.y = EYE_Y + EY * 0.09;
     const s = Math.min(blink, eyeOpen);
     e.m.scale.y = s;
+    for (const k of ['happy', 'joy', 'love', 'star']) e.faces[k].scale.y = Math.max(0.2, blink);   // 像素表情也跟着眨眼
     e.m.position.y = -(1 - s) * EYE * 0.3;
   });
 

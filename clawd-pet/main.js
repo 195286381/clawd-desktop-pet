@@ -19,6 +19,22 @@ let wander = true;      // 是否自由活动
 let passthrough = false; // 完全穿透:Clawd 完全不接收鼠标,只能通过菜单互动
 let clinging = false;    // 是否贴在屏幕边上
 
+// ---------- 设置(目前只有大小),存在 userData/settings.json ----------
+const fs = require('fs');
+const SIZES = [['小', 0.75], ['中(默认)', 1], ['大', 1.3], ['特大', 1.6]];
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
+function loadSettings() { try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')); } catch { return {}; } }
+let petScale = Number(loadSettings().scale) || 1;
+function loadPet() { win.loadFile('index.html', { query: { scale: String(petScale) } }); }
+function setScale(v) {
+  if (v === petScale) return;
+  petScale = v;
+  try { fs.writeFileSync(settingsFile(), JSON.stringify({ ...loadSettings(), scale: v })); } catch (e) { console.error('保存设置失败', e); }
+  clinging = false;
+  if (win && !win.isDestroyed()) loadPet();   // 重新载入页面,按新大小重建画布
+  refreshMenus();
+}
+
 const workArea = () => screen.getPrimaryDisplay().workArea;
 // ---------- 用量:每 30 秒增量扫描一次 Claude Code 的本地会话记录 ----------
 const tracker = new UsageTracker();
@@ -84,9 +100,14 @@ function createWindow() {
   win.setAlwaysOnTop(true, 'floating');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.setIgnoreMouseEvents(true);
-  win.loadFile('index.html');
+  loadPet();
   win.once('ready-to-show', () => win.showInactive());
-  win.webContents.on('did-finish-load', () => { pushUsage(); refreshLimits(true); });
+  win.webContents.on('did-finish-load', () => {
+    // 页面(重新)载入后,把菜单里的开关状态同步过去
+    if (!wander) send('wander-off');
+    if (passthrough) send('passthrough-on');
+    pushUsage(); refreshLimits(true);
+  });
 
   // 持续把光标位置(窗口坐标)发给渲染进程:用于眼睛跟随,以及判断光标是否在 Clawd 身上
   const timer = setInterval(() => {
@@ -151,6 +172,7 @@ function menuTemplate({ forDock = false } = {}) {
         send(passthrough ? 'passthrough-on' : 'passthrough-off');
         refreshMenus();
       } },
+    { label: '大小', submenu: SIZES.map(([name, v]) => ({ label: name, type: 'radio', checked: petScale === v, click: () => setScale(v) })) },
     { label: clinging ? '离开边缘' : '贴到屏幕边上', click: act('cling') },
     { label: '回到屏幕中间', click: act('home') },
   ];
