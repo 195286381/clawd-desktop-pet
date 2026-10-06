@@ -28,9 +28,9 @@ function pushUsage() {
     tracker.scan();
     const sum = tracker.summary();
     // 开发自测:CLAWD_FAKE_QUOTA=7 npm start —— 假装 5 小时额度只剩 7%(只在未打包时生效)
-    const fake = !app.isPackaged && process.env.CLAWD_FAKE_QUOTA;
-    if (fake !== undefined && fake !== '') {
-      const rem = Number(fake);
+    const fakeRaw = app.isPackaged ? '' : (process.env.CLAWD_FAKE_QUOTA || '');
+    const rem = fakeRaw.trim() === '' ? NaN : Number(fakeRaw);
+    if (Number.isFinite(rem)) {
       sum.limits = { fiveHour: { used: 100 - rem, remaining: rem, resetsAt: Date.now() + 90 * 60000 },
         sevenDay: (sum.limits && sum.limits.sevenDay) || null, others: [], savedAt: Date.now() };
     }
