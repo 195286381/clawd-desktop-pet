@@ -1,175 +1,187 @@
 <p align="center">
-  <img src="clawd-pet/build/icon.png" width="128" alt="Clawd 图标">
+  <img src="clawd-pet/build/icon.png" width="128" alt="Clawd icon">
 </p>
 
-<h1 align="center">Clawd 桌宠</h1>
+<h1 align="center">Clawd Desktop Pet</h1>
 
-<p align="center">住在 macOS 桌面上的 3D 小螃蟹 —— Claude Code 的吉祥物 Clawd，<br>会到处溜达、能拖能扔，还能告诉你 Claude Code 额度还剩多少。</p>
+<p align="center">A little 3D crab that lives on your macOS desktop — Clawd, the Claude Code mascot.<br>It wanders around, can be dragged and tossed, shows how much Claude Code quota you have left, and calls you when Claude finishes a task.</p>
+
+<p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
+
+<p align="center"><img src="docs/showcase.png" width="760" alt="Clawd in different states: quota bar overhead, reporting a finished task, talking to itself, being petted, looking cool, typing on a laptop with you, sleeping when quota runs out, Halloween outfit"></p>
+
+> **Note:** Clawd's own interface (menus, speech bubbles, usage panel) is currently in **Simplified Chinese** only. Menu names in this README are given in English with the original Chinese in brackets so you can find them.
 
 ---
 
-## 功能
+## Features
 
-**日常活动**
-- 在屏幕底部自己溜达：横着走、左右张望、偶尔蹦一下、挥挥手
-- 眼睛跟着鼠标转；鼠标停在它身上时，它会停下来看着你
-- 随机眨眼，偶尔连眨两下或只眨一只眼
+**Everyday life**
+- Strolls along the bottom of the screen on its own: walks sideways, looks around, hops now and then, waves
+- Its eyes follow your mouse; when the cursor rests on it, it stops and looks at you
+- Blinks at random, sometimes twice in a row or with just one eye (a wink)
+- Talks to itself when idle (in a "thought" bubble), depending on the time of day, your quota, whether it's clinging to the screen edge, and how hard you've been using Claude Code
 
-**互动**
-- **点一下**：举起双手，头顶弹出用量气泡；气泡开着时再点一下就收起，它会跳一下
-- **拖拽**：拎起来时手乱挥、腿乱蹬；松手会掉下来，甩得太猛会弹一下
+**Interaction**
+- **Click**: raises both arms and pops up the usage panel above its head; click again while the panel is open to close it, and it hops
+- **Drag**: looks startled when picked up, arms and legs flailing; let go and it falls — toss it hard and it bounces and gets dizzy for a moment
+- **Pet it**: rest the cursor on it without moving and it shows heart eyes and blushes; poke it 4 times quickly and it gets annoyed
 
-**不挡你干活**
-- 除了 Clawd 本身，其他地方的点击都直接穿透
-- 光标只是路过 Clawd 时，它变半透明、点击也直接穿透到下面的 App；在它身上停留约 0.35 秒才变实、可以点和拖（同时停下来看着你）
-- 光标在它附近忙活一阵，它会自己走开，给你让出地方
-- 窗口不可聚焦：点它、拖它都不会抢走键盘，打字始终进入你当前的 App
-- 菜单里可以开「完全穿透（只看不点）」：Clawd 完全不接收鼠标，只通过菜单互动
+**Stays out of your way**
+- Clicks anywhere except on Clawd itself pass straight through
+- When the cursor merely passes over Clawd, it turns semi-transparent and clicks pass through to the app underneath; it becomes solid (clickable and draggable) only after the cursor rests on it for about 0.35 s — and it stops to look at you
+- If you keep working with the cursor near it, it walks away to give you room
+- Its window never takes focus: clicking or dragging it never steals the keyboard, so typing always goes to your current app
+- The menu has **Full click-through (look, don't touch)** ("完全穿透（只看不点）"): Clawd ignores the mouse entirely and you interact through the menu only
 
-**常驻 & 收起**
-- 菜单栏和 Dock 里都有 Clawd 图标（不想占 Dock 位置的话，可以在「设置」里关掉 Dock 图标，Clawd 照常在桌面上，菜单从菜单栏图标打开）
-  - 左键点菜单栏图标：收起 / 放出 Clawd
-  - 点 Dock 图标：收起时放出来，已经在外面就跳一下
-  - 右键任一图标：打开完整菜单
-    - 收起 / 放出 Clawd、查看用量
-    - **动作**：跳一下、打招呼、跳舞、探头张望、散散步、伸懒腰
-    - **位置**：贴到屏幕边上 / 离开边缘、回到屏幕中间
-    - **Claude Code**：连接 Claude Code（任务提醒）、回复完成时提醒、需要确认 / 等你输入时提醒
-    - **外观**：大小、血条、节日装扮
-    - **设置**：自言自语（话多 / 正常 / 安静 / 不说话）、休息提醒（关闭 / 45 / 60 / 90 分钟）、自由活动、完全穿透（只看不点）、在 Dock 中显示图标、开机自动启动
-    - 退出 Clawd（菜单栏图标里）
-- 收起时 Clawd 蹦起来转一圈缩小消失，放出时从屏幕上方掉下来；收起期间不占 CPU / GPU
+**Always there, easy to tuck away**
+- Clawd has icons in both the menu bar and the Dock (if you'd rather not use a Dock slot, turn the Dock icon off under **Settings**; Clawd stays on the desktop and the menu lives in the menu bar icon)
+  - Left-click the menu bar icon: hide / show Clawd
+  - Click the Dock icon: brings Clawd back if hidden, otherwise it hops
+  - Right-click either icon for the full menu:
+    - Hide / show Clawd, View usage
+    - **Actions** (动作): hop, wave, dance, peek around, take a walk, stretch
+    - **Position** (位置): cling to the screen edge / leave the edge, back to the center of the screen
+    - **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting for you
+    - **Appearance** (外观): size, quota bar, holiday outfits
+    - **Settings** (设置): self-talk (chatty / normal / quiet / silent), break reminder (off / 45 / 60 / 90 min), free roaming, full click-through, show icon in Dock, launch at login
+    - Quit Clawd (in the menu bar icon's menu)
+- When hidden, Clawd jumps, spins and shrinks away; when shown, it drops in from the top of the screen. While hidden it uses no CPU / GPU
 
-## Claude Code 用量
+## Claude Code usage
 
-<p align="center"><img src="docs/usage-bubble.png" width="268" alt="用量气泡"></p>
+<p align="center"><img src="docs/usage-panel.png" width="296" alt="Pixel-style usage panel (sample data)"></p>
 
-点 Clawd 或在菜单里选「查看用量」，头顶会弹出用量气泡：
+Click Clawd or choose **View usage** (查看用量) in the menu, and a pixel-style usage panel pops up above its head (the image above uses sample data):
 
-| 内容 | 来源 |
+| What | Where it comes from |
 |---|---|
-| 5 小时额度 / 本周额度剩余百分比、重置时间 | 调用官方命令 `claude -p "/usage"`，与 Claude Code 里 `/usage` 显示的一致 |
-| 今天、近 7 天、当前 5 小时窗口的花费和 token 数，各模型占比 | 读取本机 `~/.claude/projects/` 下的会话记录，按 Anthropic API 价格估算 |
+| Remaining % and reset time of the 5-hour and weekly quotas | Runs the official `claude -p "/usage"` command — the same numbers as `/usage` inside Claude Code |
+| Cost and token counts for today, the last 7 days and the current 5-hour window, plus per-model share | Reads local session logs under `~/.claude/projects/` and estimates cost at Anthropic API prices |
 
-- 额度查询只查额度，**不调用模型、不消耗额度、不留会话记录**；Clawd 本身**不读取任何登录凭证**
-- 额度启动时查一次，之后每 5 分钟一次；点开气泡时，如果数据超过 1 分钟也会刷新
-- 花费是按 API 价格的**估算**，用订阅套餐时实际不按这个扣费，只作为"用了多少"的参考
-- 订阅额度只有 Pro / Max 订阅才有；用 API Key 时只显示花费估算
+- The quota check only reads your quota: it **does not call a model, use any quota, or leave a session behind**. Clawd itself **never reads any login credentials**
+- Quota is checked once at launch and every 5 minutes after; opening the panel also refreshes it if the data is more than a minute old
+- Cost is an **estimate** at API prices. On a subscription plan you are not billed this way — treat it as a rough "how much have I used" figure
+- Subscription quotas exist only on Pro / Max plans; with an API key, only the cost estimate is shown
 
-**Clawd 的状态会随剩余额度变化**（取 5 小时额度和本周额度里剩得更少的那个）：
+**Clawd's mood follows your remaining quota** (whichever of the 5-hour and weekly quotas is lower):
 
-| 剩余额度 | 状态 | 表现 |
+| Remaining | Mood | What you'll see |
 |---|---|---|
-| ≥ 50% | 精神饱满 | 正常活动 |
-| 20% – 50% | 有点忙 | 偶尔冒汗，偶尔趴下歇一会 |
-| 10% – 20% | 累了 | 眼睛半闭、走得慢、常打盹 |
-| < 10% | 快没电了 | 身体颜色变暗、微微发抖、汗冒得很勤；每 15 分钟提醒一次 |
-| 用完 | 额度用完了 | 先哭一下，然后戴上睡帽一直睡、身体变灰 |
+| ≥ 50% | Full of energy | Normal activity |
+| 20% – 50% | A bit busy | Occasionally sweats, sometimes flops down for a rest |
+| 10% – 20% | Tired | Half-closed eyes, walks slowly, naps often |
+| < 10% | Running on empty | Body color dims, trembles slightly, sweats a lot; reminds you every 15 minutes |
+| Used up | Out of quota | Cries for a moment, then puts on a nightcap and sleeps, body turns grey |
 
-状态变差时 Clawd 会主动冒一句提示；额度重置恢复时会跳舞庆祝「额度恢复啦！🎉」。拿不到额度数据时（例如用 API Key），按当前 5 小时窗口的估算花费判断前三档（$8 / $25）。阈值在 [`clawd-pet/pet.js`](clawd-pet/pet.js) 的 `LEVEL_*` 常量里。
+When the mood gets worse, Clawd says something about it; when the quota resets, it dances to celebrate. Without quota data (for example with an API key), it uses the estimated cost of the current 5-hour window for the first three moods ($8 / $25). The thresholds are the `LEVEL_*` constants in [`clawd-pet/pet.js`](clawd-pet/pet.js).
 
-### 头顶血条
+### Quota bar
 
-Clawd 头顶有一个血条：10 格表示 **5 小时额度**，旁边的小圆环表示**本周额度**，颜色按上面五档变化（绿土 → 土黄 → 焦赭 → 茜素红 → 灰）。5 小时额度剩余不到 20% 时显示百分比，不到 10% 时闪烁；鼠标悬停在 Clawd 身上时，两个额度的百分比都会显示出来。贴边时血条竖过来，挂在身体旁边。
+A bar floats above Clawd: the 10 cells show the **5-hour quota**, and the small ring next to it shows the **weekly quota**. Colors follow the five moods above (terre verte → yellow ochre → burnt sienna → alizarin → grey). Below 20% the 5-hour percentage is shown, and below 10% it blinks; hover over Clawd to see both percentages. When Clawd clings to the screen edge, the bar turns vertical and hangs beside it.
 
-在菜单「血条」里可以选：**一直显示**（默认）/ **鼠标悬停时显示** / **关闭**。
+Under **Appearance → Quota bar** (外观 → 血条) you can choose **Always show** (default) / **Show on hover** / **Off**.
 
-## 和 Claude Code 联动
+## Working with Claude Code
 
-在菜单「Claude Code → 连接 Claude Code（任务提醒）」打勾后，Clawd 会在 `~/.claude/settings.json` 里加几条 hooks（只追加自己的，已有的 hooks 原样保留，改之前备份为 `settings.json.clawd-backup`；取消勾选就删掉这几条）。之后**新开的** Claude Code 会话：
+Tick **Claude Code → Connect Claude Code (task alerts)** (连接 Claude Code（任务提醒）) in the menu and Clawd adds a few hooks to `~/.claude/settings.json`. It only appends its own entries and leaves your existing hooks untouched; the original file is backed up as `settings.json.clawd-backup`, and unticking removes those entries again. In **newly started** Claude Code sessions:
 
-- **你发出指令**：Clawd 抱起小电脑陪着干活，自言自语也会变成「我帮你盯着呢 👀」之类
-- **回复完成**（干了 15 秒以上的才提醒）：Clawd 跳起来报告「Claude 做完啦 ✅」，带上项目名
-- **需要你批准权限 / 在等你输入**：Clawd 挥手提醒「🙋 要用 Bash，需要你批准」
+- **You send a prompt**: Clawd pulls out a little laptop and works along with you; its self-talk switches to lines like "I'm keeping an eye on it 👀"
+- **A reply is done** (only for tasks that took 15 seconds or more): Clawd jumps and reports "Claude is done ✅", with the project name
+- **Claude needs your approval / is waiting for your input**: Clawd waves, e.g. "🙋 Wants to use Bash — needs your approval"
 
-hooks 用 `curl` 把事件发到本机 `127.0.0.1:47615`；Clawd 没开着时命令立刻静默结束，不影响 Claude Code。两种提醒都可以在同一个菜单里单独关掉。
+The hooks use `curl` to send events to `127.0.0.1:47615` on your machine; if Clawd isn't running, the command exits silently right away and Claude Code is unaffected. Both kinds of alerts can be turned off separately in the same menu.
 
-### 额度用完预测和休息提醒
+### Quota forecast and break reminders
 
-- Clawd 记录每次查到的 5 小时额度，按最近的增长速度预测还能撑多久：用量面板里显示「照现在速度，约 40 分钟后用完」或「撑得到重置」；预计 45 分钟内用完时主动提醒一次
-- 连续使用 Claude Code 超过设定时间（默认 60 分钟），Clawd 伸个懒腰提醒你起来活动；中间停够 10 分钟就重新计时
+- Clawd records the 5-hour quota every time it checks and predicts, from the recent rate, how long you have left. The usage panel shows "at this pace, used up in about 40 min" or "will last until the reset", and Clawd warns you once if it expects the quota to run out within 45 minutes
+- After you've used Claude Code continuously for the set time (60 minutes by default), Clawd stretches and reminds you to get up and move; a 10-minute break resets the timer
 
-## 表情、道具和大小
+## Expressions, props and looks
 
-- **表情**：平时会眨眼、跟着光标张望，累了会眯眼。另外还有 `> <`、`^ ^`、`x x`、`o o`、墨镜、爱心眼 + 腮红、星星眼、`$ $`、不耐烦、哭哭、眨单眼，按场景出现：例如被拎起来会吃惊，摔重了会晕，光标停在它身上像被摸会冒爱心，连戳 4 下会不耐烦
-- **道具**：睡觉戴睡帽，庆祝戴派对帽，跳舞可能戴耳机，你在用 Claude Code 时会抱着小电脑陪你写，早上捧杯咖啡
-- **自言自语**：闲着时每隔一阵随机说一句，内容看时间、额度、是否贴边、你最近用得猛不猛
-- **节日装扮**：万圣节戴巫师帽，圣诞节戴圣诞帽，春节围红围巾（菜单「外观 → 节日装扮」可以关掉）
-- **大小**：菜单「大小」里选小 / 中 / 大 / 特大
+- **Expressions**: blinks and follows the cursor, squints when tired. It also has `> <`, `^ ^`, `x x`, `o o`, sunglasses, heart eyes with blush, star eyes, `$ $`, annoyed, crying and winking, each for its own moment — startled when picked up, dizzy after a hard fall, heart eyes when petted, annoyed after 4 quick pokes
+- **Props**: a nightcap for sleeping, a party hat for celebrating, sometimes headphones while dancing, a little laptop while you're using Claude Code, and a cup of coffee in the morning
+- **Self-talk**: every so often it says something, depending on the time, your quota, whether it's clinging to the edge and how hard you've been using Claude Code; adjust how often under **Settings → Self-talk** (设置 → 自言自语): chatty / normal / quiet / silent
+- **Pixel-style bubbles**: things it says to you appear in a pixel-bordered dialog box with a stepped tail; self-talk uses a "thought" bubble with two little pixel squares underneath. Bubbles pop in and the text types out letter by letter, in the Ark Pixel font
+- **Holiday outfits**: a witch hat for Halloween, a Santa hat for Christmas, a red scarf for Lunar New Year (turn off under **Appearance → Holiday outfits**, 外观 → 节日装扮)
+- **Size**: small / medium / large / extra large under **Appearance → Size** (外观 → 大小)
 
-菜单里的各项设置都会记住，保存在 `~/Library/Application Support/Clawd/settings.json`。
+All menu settings are remembered in `~/Library/Application Support/Clawd/settings.json`.
 
-## 贴边模式
+## Edge-cling mode
 
-把 Clawd 拖到屏幕左 / 右边缘松手（或用力甩向边缘、或在菜单选「贴到屏幕边上」），它会侧过身扒在屏幕边上，大半个身子藏在屏幕外，只露出眼睛偷看，不走动、不挡东西。光标靠近时它会多探出来一点；点它照样能看用量；把它拖离边缘（或菜单「离开边缘」）就恢复正常。
+Drag Clawd to the left or right edge of the screen and let go (or fling it at the edge, or choose **Cling to the screen edge** in the menu). It turns sideways and hangs on the edge with most of its body off-screen, just peeking out — no walking, nothing blocked. It leans out a little more when the cursor comes near; click it to see usage as usual. Drag it away from the edge (or choose **Leave the edge**) to return to normal.
 
-## 安装与运行
+## Install and run
 
-需要 macOS（Apple 芯片）、Node.js，以及已登录的 [Claude Code](https://code.claude.com) 命令行（用于查询额度）。
+Requires macOS (Apple silicon), Node.js, and the [Claude Code](https://code.claude.com) CLI, signed in (used to check your quota).
 
 ```bash
 cd clawd-pet
 npm install
-npm start            # 开发模式直接运行
+npm start            # run in development mode
 ```
 
-打包成 `Clawd.app` 并装进「应用程序」：
+Package as `Clawd.app` and install it into Applications:
 
 ```bash
 cd clawd-pet
 npm run package && ditto dist/Clawd-darwin-arm64/Clawd.app /Applications/Clawd.app
 ```
 
-更新前先在菜单里退出正在运行的 Clawd。装进「应用程序」后，可以在菜单里勾选「开机自动启动」。
+Quit the running Clawd from its menu before updating. Once it's in Applications, you can tick **Launch at login** in the menu.
 
-> App 没有签名。自己电脑上直接用没问题；发给别人时，对方第一次需要右键选「打开」。
+> The app is not signed. It runs fine on your own Mac; if you send it to someone else, they need to right-click it and choose **Open** the first time.
 
-### 开发自测
+### Development switches
 
-只在 `npm start`（未打包）时生效：
+These only take effect with `npm start` (unpackaged):
 
 ```bash
-CLAWD_SELFTEST=1 npm start       # 4 秒后收起，8 秒后放出
-CLAWD_SELFTEST=usage npm start   # 3 秒后弹出用量气泡
-CLAWD_SELFTEST=cling npm start   # 3 秒后贴到屏幕边上
-CLAWD_FAKE_QUOTA=7 npm start     # 假装 5 小时额度只剩 7%，用来看各档状态
-CLAWD_FAKE_WEEK=30 npm start     # 假装本周额度只剩 30%，用来看血条旁的圆环
-CLAWD_FAKE_QUOTA=30 CLAWD_FAKE_ETA=25 npm start   # 假装照现在速度 25 分钟后用完
-CLAWD_HOOK_PORT=47616 npm start  # hooks 接口换个端口（桌面上的 Clawd 正开着时用）
-CLAWD_CC_SETTINGS=/tmp/s.json npm start           # 「连接 Claude Code」改这个文件，不动真正的配置
+CLAWD_SELFTEST=1 npm start       # hide after 4 s, show again after 8 s
+CLAWD_SELFTEST=usage npm start   # pop up the usage panel after 3 s
+CLAWD_SELFTEST=cling npm start   # cling to the screen edge after 3 s
+CLAWD_FAKE_QUOTA=7 npm start     # pretend only 7% of the 5-hour quota is left, to see each mood
+CLAWD_FAKE_WEEK=30 npm start     # pretend only 30% of the weekly quota is left, to see the ring
+CLAWD_FAKE_QUOTA=30 CLAWD_FAKE_ETA=25 npm start   # pretend the quota runs out in 25 min at this pace
+CLAWD_HOOK_PORT=47616 npm start  # use another port for the hooks endpoint (while the installed Clawd is running)
+CLAWD_CC_SETTINGS=/tmp/s.json npm start           # "Connect Claude Code" edits this file instead of your real settings
+CLAWD_DEMO=1 npm start           # use fixed sample data (for README screenshots, without exposing real usage)
 ```
 
-单独检查用量统计：
+Check the usage statistics on their own:
 
 ```bash
 cd clawd-pet && node usage.js
 ```
 
-## 造型与动作的依据
+## Where the design and motion come from
 
-- **造型**：按 Claude Code 程序里 Clawd 的四分块字符画逐像素还原，比例参考 Anthropic 官方 Clawd 动画（[@claudeai](https://x.com/claudeai) 发布的短片）——四条较长的腿、小方块眼睛、两侧短手臂
-- **腿部动作**：腿是"髋 → 脚"的柱子，脚落地后钉在地面上；张望时身体前倾抬高、四条腿像平行四边形一样斜过去；走路时两组脚交替迈步；在空中时腿挂在身体下面晃荡，并限制伸缩长度
-- **其他动作**：全部用阻尼弹簧过渡，有蓄力、挤压拉伸和落地回弹；起跳前快速下蹲、手往下压，参考了 [Codrops 对官方动画的逐帧拆解](https://tympanus.net/codrops/2026/05/05/reverse-engineering-claude-ais-mascot-animations-with-svg-and-gsap/)
+- **Look**: based on Clawd's quadrant-block ASCII art in the Claude Code program, the official Anthropic Clawd animations (short videos posted by [@claudeai](https://x.com/claudeai)), and the 3D-printed Clawd: a square, sturdy body, flat arms on each side, four block legs (with a wider gap between the middle two), and small square eyes. The legs are a bit longer than the reference so it moves more lively
+- **Legs**: each leg is a hip-to-foot column; feet stay planted once they touch the ground. When peeking, the body leans forward and rises while the four legs slant like a parallelogram; when walking, the two pairs of feet step alternately; in the air the legs dangle under the body with limited stretch
+- **Other motion**: everything is eased with damped springs, with anticipation, squash and stretch, and a bounce on landing; before a jump it crouches quickly and pushes its arms down — inspired by [Codrops' frame-by-frame breakdown of the official animations](https://tympanus.net/codrops/2026/05/05/reverse-engineering-claude-ais-mascot-animations-with-svg-and-gsap/)
 
-## 项目结构
+## Project structure
 
 ```
 clawd/
-├── clawd-pet/                 桌宠(Electron + three.js)
-│   ├── main.js                主进程:透明置顶窗口、点击穿透、菜单栏 / Dock、用量调度
-│   ├── preload.js             主进程与页面之间的接口
-│   ├── index.html             页面、像素风对话框 / 用量面板 / 血条样式
-│   ├── pet.js                 3D 模型、动作、物理、互动、心情
-│   ├── usage.js               本地用量统计 + 订阅额度查询
-│   ├── trayTemplate*.png      菜单栏图标
-│   ├── fonts/                 像素字体(方舟像素字体 12px 简体中文版 + OFL 授权)
-│   └── build/                 应用图标(Blender 渲染脚本 + 合成脚本)
-├── clawd.html                 网页版 3D Clawd(浏览器直接打开)
-├── claude_figure.*            最早的 Blender 人偶(造型不是 Clawd,留作纪念)
-└── docs/                      README 用的图片
+├── clawd-pet/                 the desktop pet (Electron + three.js)
+│   ├── main.js                main process: transparent always-on-top window, click-through, menu bar / Dock, usage scheduling, Claude Code hooks
+│   ├── preload.js             bridge between the main process and the page
+│   ├── index.html             page and styles for the pixel dialog boxes / usage panel / quota bar
+│   ├── pet.js                 3D model, motion, physics, interaction, moods
+│   ├── usage.js               local usage statistics + subscription quota check
+│   ├── trayTemplate*.png      menu bar icons
+│   ├── fonts/                 pixel font (Ark Pixel Font 12px, Simplified Chinese, + OFL license)
+│   └── build/                 app icon (Blender render script + compositing script)
+├── clawd.html                 web version of the 3D Clawd (open directly in a browser)
+├── claude_figure.*            the very first Blender figure (not Clawd's shape — kept as a keepsake)
+├── README.md                  English README
+├── README.zh-CN.md            Chinese README
+└── docs/                      images for the README (captured with CLAWD_DEMO=1 sample data)
 ```
 
-重新生成应用图标（需要 Blender 和 Pillow）：
+Regenerate the app icon (needs Blender and Pillow):
 
 ```bash
 cd clawd-pet
@@ -177,8 +189,8 @@ cd clawd-pet
 python3 build/make_icon.py
 ```
 
-## 说明
+## Notes
 
-Clawd 是 Anthropic 的吉祥物。本项目是个人爱好作品，与 Anthropic 无关，仅供个人使用。
+Clawd is Anthropic's mascot. This is a personal hobby project, not affiliated with Anthropic, for personal use only.
 
-气泡、用量面板和血条里的文字使用 [方舟像素字体（Ark Pixel Font）](https://github.com/TakWolf/ark-pixel-font) 12px 简体中文版，© TakWolf，以 [SIL Open Font License 1.1](clawd-pet/fonts/ark-pixel-OFL.txt) 授权。
+Text in the bubbles, usage panel and quota bar uses the [Ark Pixel Font](https://github.com/TakWolf/ark-pixel-font) 12px Simplified Chinese edition, © TakWolf, licensed under the [SIL Open Font License 1.1](clawd-pet/fonts/ark-pixel-OFL.txt).

@@ -146,6 +146,19 @@ function pushUsage() {
       sum.limits = { fiveHour: { used: 100 - rem, remaining: rem, resetsAt: Date.now() + 90 * 60000, etaMin: Number.isFinite(eta) ? eta : null },
         sevenDay: (sum.limits && sum.limits.sevenDay) || null, others: [], savedAt: Date.now() };
     }
+    // 开发自测:CLAWD_DEMO=1 —— 用一组固定的示例数据(给 README 截图用,不暴露真实用量)
+    if (!app.isPackaged && process.env.CLAWD_DEMO) {
+      const now = Date.now();
+      Object.assign(sum, {
+        today: { cost: 12.4, tokens: 2.36e7, output: 1.8e5, messages: 320 },
+        week: { cost: 58.9, tokens: 1.12e8, output: 9.4e5, messages: 1630 },
+        block: { cost: 9.75, tokens: 1.7e7, start: now - 2 * 3600e3, end: now + 3 * 3600e3, remainingMin: 168, burnPerHour: 4.9 },
+        byModel: { 'opus-5-5': { cost: 10.9, tokens: 2e7 }, 'sonnet-5-5': { cost: 1.5, tokens: 3.6e6 } },
+        lastActive: now - 3 * 3600e3, streakStart: null,   // 示例里不算"正在用",免得到处抱电脑
+        limits: { fiveHour: { used: 58, remaining: 42, resetsAt: now + 168 * 60e3, etaMin: 95 },
+          sevenDay: { used: 27, remaining: 73, resetsAt: now + 2.6 * 864e5 }, others: [], savedAt: now },
+      });
+    }
     // 开发自测:CLAWD_FAKE_WEEK=30 —— 假装本周额度只剩 30%
     const fakeWeek = app.isPackaged ? NaN : Number((process.env.CLAWD_FAKE_WEEK || '').trim() || NaN);
     if (Number.isFinite(fakeWeek)) {
