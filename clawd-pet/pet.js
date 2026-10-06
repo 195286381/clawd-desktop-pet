@@ -225,6 +225,7 @@ function prop(name, parent) { const g = new THREE.Group(); g.visible = false; pa
   [[-0.05, 0.29], [0.02, 0.36], [0.07, 0.29]].forEach(([x, y]) => box(g, PM.cream, [x, y, 0], [0.05, 0.05, 0.05], 0.01));
 }
 let curProp = null, propOverride = null, propOverrideUntil = 0;
+let hpMode = 'always', hpHoverUntil = 0;   // 血条显示方式:always / hover / off(主进程按菜单设置发过来)
 function setProp(name) { for (const [k, g] of Object.entries(PROPS)) g.visible = k === name; }
 
 // 汗珠:用量多的时候从额头侧边滑下来
@@ -532,6 +533,7 @@ window.pet?.onCommand(cmd => {
     return;
   }
   if (cmd === 'chat') { chatter(true); return; }
+  if (cmd.startsWith('hp:')) { hpMode = cmd.slice(3); return; }
   if (cmd.startsWith('face:')) { flashFace(cmd.slice(5), 6); return; }
   if (cmd.startsWith('prop:')) { propOverride = cmd.slice(5); propOverrideUntil = clock.elapsedTime + 6; return; }
   if (cmd === 'usage') { showUsage(); if (!isClinging()) setAction({ type: 'present', dur: 2.4 }); return; }
@@ -1073,7 +1075,9 @@ function frame() {
 
   // ---- 10. 头顶血条:格子 = 5 小时额度,旁边的小圆环 = 本周额度。有额度数据就常驻(气泡开着时让位) ----
   const L = usage && usage.limits;
-  if (L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused) {
+  if (hovering) hpHoverUntil = t + 1.5;   // 悬停模式:移开后再停 1.5 秒
+  const hpOn = hpMode === 'always' || (hpMode === 'hover' && t < hpHoverUntil);
+  if (hpOn && L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused) {
     const r = Math.max(0, Math.round(L.fiveHour ? L.fiveHour.remaining : 100));   // 5 小时窗口过期 = 已重置,满格
     const hl = levelOf(r), cells = Math.min(10, Math.ceil(r / 10));
     const vert = isClinging();

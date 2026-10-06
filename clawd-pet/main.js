@@ -19,17 +19,24 @@ let wander = true;      // 是否自由活动
 let passthrough = false; // 完全穿透:Clawd 完全不接收鼠标,只能通过菜单互动
 let clinging = false;    // 是否贴在屏幕边上
 
-// ---------- 设置(目前只有大小),存在 userData/settings.json ----------
+// ---------- 设置(大小、血条显示方式),存在 userData/settings.json ----------
 const fs = require('fs');
 const SIZES = [['小', 0.75], ['中(默认)', 1], ['大', 1.3], ['特大', 1.6]];
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function loadSettings() { try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')); } catch { return {}; } }
+function saveSetting(key, v) {
+  try { fs.writeFileSync(settingsFile(), JSON.stringify({ ...loadSettings(), [key]: v })); } catch (e) { console.error('保存设置失败', e); }
+}
 let petScale = Number(loadSettings().scale) || 1;
+// 血条:一直显示 / 鼠标悬停时显示 / 关闭
+const HP_MODES = [['一直显示', 'always'], ['鼠标悬停时显示', 'hover'], ['关闭', 'off']];
+let hpMode = HP_MODES.some(([, v]) => v === loadSettings().hpMode) ? loadSettings().hpMode : 'always';
+function setHpMode(v) { hpMode = v; saveSetting('hpMode', v); send('hp:' + v); refreshMenus(); }
 function loadPet() { win.loadFile('index.html', { query: { scale: String(petScale) } }); }
 function setScale(v) {
   if (v === petScale) return;
   petScale = v;
-  try { fs.writeFileSync(settingsFile(), JSON.stringify({ ...loadSettings(), scale: v })); } catch (e) { console.error('保存设置失败', e); }
+  saveSetting('scale', v);
   clinging = false;
   if (win && !win.isDestroyed()) loadPet();   // 重新载入页面,按新大小重建画布
   refreshMenus();
@@ -106,6 +113,7 @@ function createWindow() {
     // 页面(重新)载入后,把菜单里的开关状态同步过去
     if (!wander) send('wander-off');
     if (passthrough) send('passthrough-on');
+    send('hp:' + hpMode);
     pushUsage(); refreshLimits(true);
   });
 
@@ -172,6 +180,7 @@ function menuTemplate({ forDock = false } = {}) {
         send(passthrough ? 'passthrough-on' : 'passthrough-off');
         refreshMenus();
       } },
+    { label: '血条', submenu: HP_MODES.map(([name, v]) => ({ label: name, type: 'radio', checked: hpMode === v, click: () => setHpMode(v) })) },
     { label: '大小', submenu: SIZES.map(([name, v]) => ({ label: name, type: 'radio', checked: petScale === v, click: () => setScale(v) })) },
     { label: clinging ? '离开边缘' : '贴到屏幕边上', click: act('cling') },
     { label: '回到屏幕中间', click: act('home') },
