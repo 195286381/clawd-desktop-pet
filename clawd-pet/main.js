@@ -2,8 +2,10 @@
 // 一个铺满主屏工作区(菜单栏以下、Dock 以上)的透明置顶窗口。
 // 默认鼠标穿透;只有光标落在 Clawd 身上时才接收点击,所以不会挡住你的操作。
 // 菜单栏和 Dock 里都常驻一个图标:可以把 Clawd "收起来"(最小化),再点一下放出来。
-const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, dialog } = require('electron');
 const path = require('path');
+const os = require('os');
+const http = require('http');
 const { UsageTracker, fetchLimits } = require('./usage');
 
 app.setName('Clawd');
@@ -44,6 +46,79 @@ function applyDock() {
   if (showDock) app.dock.show().then(() => { refreshMenus(); keepOnTop(); });
   else { app.dock.hide(); keepOnTop(); }
 }
+// 自言自语频率、休息提醒、节日装扮、Claude Code 提醒开关
+const CHAT_LEVELS = [['话多', 'chatty'], ['正常', 'normal'], ['安静', 'quiet'], ['不说话', 'off']];
+const BREAKS = [['关闭', 0], ['45 分钟', 45], ['60 分钟', 60], ['90 分钟', 90]];
+const st0 = loadSettings();
+let chatLevel = CHAT_LEVELS.some(([, v]) => v === st0.chatLevel) ? st0.chatLevel : 'normal';
+let breakMin = BREAKS.some(([, v]) => v === st0.breakMin) ? st0.breakMin : 60;
+let holiday = st0.holiday !== false;
+let ccNotifyDone = st0.ccNotifyDone !== false, ccNotifyAsk = st0.ccNotifyAsk !== false;
+function syncPrefs() {
+  send('chat:' + chatLevel); send('break:' + breakMin); send('holiday:' + (holiday ? 'on' : 'off'));
+  send('cc-notify:' + (ccNotifyDone ? 1 : 0) + (ccNotifyAsk ? 1 : 0)); send('cc-hooks:' + (ccHooked() ? 'on' : 'off'));
+}
+function setPref(key, v) {
+  ({ chatLevel: () => (chatLevel = v), breakMin: () => (breakMin = v), holiday: () => (holiday = v),
+     ccNotifyDone: () => (ccNotifyDone = v), ccNotifyAsk: () => (ccNotifyAsk = v) })[key]();
+  saveSetting(key, v); syncPrefs(); refreshMenus();
+}
+
+// ---------- 和 Claude Code 联动 ----------
+// Clawd 在本机 127.0.0.1 开一个小接口;Claude Code 的 hooks(回复完成 / 需要确认 / 等你输入 / 发出指令)
+// 用 curl 把事件发过来。Clawd 没开着时 curl 静默失败,不影响 Claude Code。
+const HOOK_PORT = (!app.isPackaged && Number(process.env.CLAWD_HOOK_PORT)) || 47615;   // 开发自测可换端口,避免和正在运行的 Clawd 冲突
+const HOOK_EVENTS = ['UserPromptSubmit', 'Stop', 'Notification', 'SessionEnd'];
+const HOOK_MARK = 'clawd-hook';
+const HOOK_CMD = `curl -s -m 2 -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:${HOOK_PORT}/hook >/dev/null 2>&1 || true # ${HOOK_MARK}`;
+// 开发自测可以用 CLAWD_CC_SETTINGS 指向一个临时文件,避免动到真正的配置
+const ccSettingsFile = () => (!app.isPackaged && process.env.CLAWD_CC_SETTINGS) || path.join(os.homedir(), '.claude', 'settings.json');
+function readCC() {
+  try { return JSON.parse(fs.readFileSync(ccSettingsFile(), 'utf8')); }
+  catch (e) { if (e.code === 'ENOENT') return {}; throw e; }   // 文件损坏时抛出,不去覆盖它
+}
+const isClawdHook = h => typeof h.command === 'string' && h.command.includes(HOOK_MARK);
+function ccHooked() {
+  try { const h = readCC().hooks || {}; return HOOK_EVENTS.every(ev => (h[ev] || []).some(g => (g.hooks || []).some(isClawdHook))); }
+  catch { return false; }
+}
+// 只增删 Clawd 自己的那几条,别的 hooks 原样保留;改之前先备份
+function setCCHooks(on) {
+  const file = ccSettingsFile();
+  const cfg = readCC();
+  if (fs.existsSync(file)) fs.copyFileSync(file, file + '.clawd-backup');
+  const hooks = cfg.hooks || {};
+  for (const ev of HOOK_EVENTS) {
+    const groups = (hooks[ev] || []).map(g => ({ ...g, hooks: (g.hooks || []).filter(h => !isClawdHook(h)) })).filter(g => g.hooks.length);
+    if (on) groups.push({ hooks: [{ type: 'command', command: HOOK_CMD, timeout: 5 }] });
+    if (groups.length) hooks[ev] = groups; else delete hooks[ev];
+  }
+  if (Object.keys(hooks).length) cfg.hooks = hooks; else delete cfg.hooks;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
+}
+function toggleCCHooks(on) {
+  try { setCCHooks(on); }
+  catch (e) {
+    dialog.showErrorBox('没能修改 Claude Code 配置', `${ccSettingsFile()}\n\n${e.message}\n\n文件没有被改动。`);
+  }
+  syncPrefs(); refreshMenus();
+  if (on && ccHooked()) dialog.showMessageBox({ message: '已连接 Claude Code', detail: '新开的 Claude Code 会话会把「回复完成 / 需要确认 / 等你输入」通知给 Clawd。已经开着的会话需要重新打开才生效。\n\n原配置已备份为 settings.json.clawd-backup。' });
+}
+http.createServer((req, res) => {
+  if (req.method !== 'POST' || req.url !== '/hook') { res.writeHead(404); return res.end(); }
+  let body = '';
+  req.on('data', c => { body += c; if (body.length > 1e5) req.destroy(); });
+  req.on('end', () => {
+    res.end('ok');
+    let d; try { d = JSON.parse(body); } catch { return; }
+    if (win && !win.isDestroyed()) win.webContents.send('cc', {
+      event: String(d.hook_event_name || ''), session: String(d.session_id || ''),
+      project: d.cwd ? path.basename(String(d.cwd)) : '', message: String(d.message || ''), at: Date.now(),
+    });
+  });
+}).on('error', e => console.error('Clawd hooks 接口启动失败', e.message)).listen(HOOK_PORT, '127.0.0.1');
+
 function setHpMode(v) { hpMode = v; saveSetting('hpMode', v); send('hp:' + v); refreshMenus(); }
 function loadPet() { win.loadFile('index.html', { query: { scale: String(petScale) } }); }
 function setScale(v) {
@@ -67,7 +142,8 @@ function pushUsage() {
     const fakeRaw = app.isPackaged ? '' : (process.env.CLAWD_FAKE_QUOTA || '');
     const rem = fakeRaw.trim() === '' ? NaN : Number(fakeRaw);
     if (Number.isFinite(rem)) {
-      sum.limits = { fiveHour: { used: 100 - rem, remaining: rem, resetsAt: Date.now() + 90 * 60000 },
+      const eta = Number(process.env.CLAWD_FAKE_ETA);   // 开发自测:CLAWD_FAKE_ETA=25 —— 假装照现在速度 25 分钟后用完
+      sum.limits = { fiveHour: { used: 100 - rem, remaining: rem, resetsAt: Date.now() + 90 * 60000, etaMin: Number.isFinite(eta) ? eta : null },
         sevenDay: (sum.limits && sum.limits.sevenDay) || null, others: [], savedAt: Date.now() };
     }
     // 开发自测:CLAWD_FAKE_WEEK=30 —— 假装本周额度只剩 30%
@@ -126,6 +202,7 @@ function createWindow() {
     if (!wander) send('wander-off');
     if (passthrough) send('passthrough-on');
     send('hp:' + hpMode);
+    syncPrefs();
     pushUsage(); refreshLimits(true);
   });
 
@@ -175,6 +252,9 @@ const act = (cmd) => () => { if (hidden) restore(); send(cmd); };
 function menuTemplate({ forDock = false } = {}) {
   // 按分类整理:常用操作 → 动作 / 位置 → 外观 / 设置 → 退出
   const settings = [
+    { label: '自言自语', submenu: CHAT_LEVELS.map(([name, v]) => ({ label: name, type: 'radio', checked: chatLevel === v, click: () => setPref('chatLevel', v) })) },
+    { label: '休息提醒', submenu: BREAKS.map(([name, v]) => ({ label: name, type: 'radio', checked: breakMin === v, click: () => setPref('breakMin', v) })) },
+    { type: 'separator' },
     { label: '自由活动', type: 'checkbox', checked: wander,
       click: (item) => { wander = item.checked; send(wander ? 'wander-on' : 'wander-off'); refreshMenus(); } },
     { label: '完全穿透(只看不点)', type: 'checkbox', checked: passthrough,
@@ -203,15 +283,23 @@ function menuTemplate({ forDock = false } = {}) {
       { label: '跳舞', click: act('dance') },
       { label: '探头张望', click: act('lean') },
       { label: '散散步', click: act('walk') },
+      { label: '伸懒腰', click: act('stretch') },
     ] },
     { label: '位置', submenu: [
       { label: clinging ? '离开边缘' : '贴到屏幕边上', click: act('cling') },
       { label: '回到屏幕中间', click: act('home') },
     ] },
     { type: 'separator' },
+    { label: 'Claude Code', submenu: [
+      { label: '连接 Claude Code(任务提醒)', type: 'checkbox', checked: ccHooked(), click: (item) => toggleCCHooks(item.checked) },
+      { type: 'separator' },
+      { label: '回复完成时提醒', type: 'checkbox', checked: ccNotifyDone, enabled: ccHooked(), click: (item) => setPref('ccNotifyDone', item.checked) },
+      { label: '需要确认 / 等你输入时提醒', type: 'checkbox', checked: ccNotifyAsk, enabled: ccHooked(), click: (item) => setPref('ccNotifyAsk', item.checked) },
+    ] },
     { label: '外观', submenu: [
       { label: '大小', submenu: SIZES.map(([name, v]) => ({ label: name, type: 'radio', checked: petScale === v, click: () => setScale(v) })) },
       { label: '血条', submenu: HP_MODES.map(([name, v]) => ({ label: name, type: 'radio', checked: hpMode === v, click: () => setHpMode(v) })) },
+      { label: '节日装扮', type: 'checkbox', checked: holiday, click: (item) => setPref('holiday', item.checked) },
     ] },
     { label: '设置', submenu: settings },
   ];

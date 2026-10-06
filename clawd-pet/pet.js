@@ -520,6 +520,7 @@ function ccWorking() {
 function ccProject(ev) { return ev.project ? `<br><b>${esc(ev.project)}</b>` : ''; }
 window.pet?.onClaude?.(ev => {
   const sid = ev.session || '?', now = Date.now();
+  ccHooks = true;   // 收到过事件就说明 hooks 已经连上了
   const x = ccSessions.get(sid) || { working: false, since: now, last: now };
   x.last = now;
   const wasWorking = ccWorking();
@@ -989,7 +990,8 @@ function frame() {
     // 伸懒腰:双手举高、身体拉长、眯眼,然后放松
     const k = p < 0.5 ? p / 0.5 : p < a.dur - 0.6 ? 1 : Math.max(0, (a.dur - p) / 0.6);
     const e = k * k * (3 - 2 * k);
-    armRot = [1.45 * e, 1.45 * e];
+    armRot = [1.5 * e, 1.5 * e];
+    armDrop = [-0.7 * e, -0.7 * e];   // 手臂短,光转不够高:整只往上提,举过头顶
     squash = 1 + 0.12 * e; by = 0.06 * e;
     rz = Math.sin(p * 2.2) * 0.04 * e;
     eyeOpen = 1 - 0.85 * e;
