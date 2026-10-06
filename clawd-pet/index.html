@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'">
+<title>Clawd</title>
+<style>
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent;
+    -webkit-user-select: none; user-select: none; }
+  #c { position: absolute; left: 0; top: 0; will-change: transform; cursor: grab; }
+  #c.dragging { cursor: grabbing; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="importmap">
+{ "imports": {
+  "three": "./node_modules/three/build/three.module.js",
+  "three/addons/": "./node_modules/three/examples/jsm/"
+} }
+</script>
+<script type="module" src="./pet.js"></script>
+</body>
+</html>
