@@ -124,6 +124,13 @@ open /Applications/Clawd.app
 | 失败的测试 | 垂头哭脸 |
 | 成功的 `git push` | 像火箭一样蹦起来，脚下冒烟 |
 | `rm -rf` | 吓得发抖冒汗 |
+| `git push --force` | 抖得更久，眼睛晕成一圈 |
+| `git commit` | 开心地小跳一下 |
+| `npm install`、`pip install` 等 | 头顶落下几个小纸箱 |
+| 构建成功（`npm run build`、`cargo build`、`make` 等） | 跳一下，头顶闪星星 |
+| 构建失败 | 垂头丧气，哭脸 |
+| `docker build` / `run` / `up` | 眨眼，冒蓝泡泡 |
+| `sudo` | 皱眉 |
 
 同一种反应 15 秒内只来一次；贴墙、睡觉、被拖着时不反应。
 

@@ -124,6 +124,13 @@ In **newly started** Claude Code sessions:
 | Tests that fail | slumps with a crying face |
 | A successful `git push` | launches like a rocket in a puff of smoke |
 | `rm -rf` | shivers and sweats |
+| `git push --force` | shivers longer, dizzy eyes |
+| `git commit` | a small happy hop |
+| `npm install`, `pip install`, … | a few boxes drop onto its head |
+| A build that succeeds (`npm run build`, `cargo build`, `make`, …) | hops and sparkles |
+| A build that fails | slumps with a crying face |
+| `docker build` / `run` / `up` | winks and blows blue bubbles |
+| `sudo` | frowns
 
 Each reaction plays at most once every 15 seconds, and not while Clawd is clinging to an edge, sleeping or being dragged.
 
