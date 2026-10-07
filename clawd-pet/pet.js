@@ -678,6 +678,133 @@ window.pet?.onClaude?.(ev => {
   if (wasWorking !== ccWorking() && action.type === 'rest') delete action.prop;   // 状态一变,马上拿起 / 放下电脑
   if (bubbleKind === 'usage') setBubbleHtml(usageHtml(usage), false);   // 面板开着就马上更新会话列表
 });
+// ---------------- 小 Clawd:一个 Claude Code 会话一只 ----------------
+// 站在大 Clawd 两侧(最多 3 只),头顶挂项目名;用动作表示会话状态:
+// 思考中歪头晃 · 干活抱着敲 · 等你批准举手蹦 · 等你回复挥手 · 做完跳一下眯眼笑 · 出错耷拉着发抖。
+// 做完 / 出错的会话 1 分钟后小 Clawd 自己走掉。
+const MINI_K = 0.42, MINI_MAX = 3;
+const MINI_SLOTS = [2.4, -2.4, 3.6];         // 相对大 Clawd 的 x(世界单位);第三只站右边外侧
+const MINI_DONE_KEEP = 60e3;
+const MINI_RANK = { ask: 0, waiting: 1, tool: 2, thinking: 3, error: 4, done: 5 };
+const minis = new Map();                      // sid → 小 Clawd
+const miniLayer = document.getElementById('minis');
+function makeMini(sid) {
+  const k = MINI_K, g = new THREE.Group();
+  const body = new THREE.Group();
+  body.position.y = LEG_L * k;
+  g.add(body);
+  box(body, orange, [0, BH * k / 2, 0], [BW * k, BH * k, BD * k], 0.02);
+  const eyes = [-1, 1].map(s => {
+    const m = box(body, dark, [s * EYE_X * k, EYE_Y * k, BD * k / 2 + 0.004], [EYE * k * 1.2, EYE * k * 1.2, 0.02], 0.006);
+    m.castShadow = false;
+    return m;
+  });
+  const arms = [-1, 1].map(s => {
+    const a = new THREE.Group();
+    a.position.set(s * BW * k / 2, ARM_Y * k, 0);
+    body.add(a);
+    box(a, orange, [s * (ARM_OUT - ARM_TUCK) * k / 2, 0, 0], [(ARM_OUT + ARM_TUCK) * k, ARM_H * k, BD * k * 0.8], 0.015);
+    return { g: a, s };
+  });
+  REST_X.forEach(x => box(g, orange, [x * k, LEG_L * k / 2, 0], [LEG_W * k, LEG_L * k, LEG_W * k], 0.01));
+  g.scale.setScalar(0.001);
+  scene.add(g);
+  const tag = document.createElement('div');
+  tag.className = 'mtag';
+  miniLayer.appendChild(tag);
+  const used = new Set([...minis.values()].map(m => m.slot));
+  const slot = MINI_SLOTS.findIndex((_, i) => !used.has(i));
+  return { sid, g, body, eyes, arms, tag, slot, x: st.x + MINI_SLOTS[slot], y: st.y, vy: 0, pop: new Spring(0, 3, 0.45), gone: false, tagKey: '' };
+}
+function wantedMinis() {   // 该露面的会话:干活 / 等你的,加上刚做完或出错不到 1 分钟的
+  ccPurge();
+  const now = Date.now();
+  return [...ccSessions.entries()]
+    .filter(([, x]) => CC_BUSY.includes(x.state) || x.state === 'ask' || x.state === 'waiting' || now - x.since < MINI_DONE_KEEP)
+    .sort((a, b) => MINI_RANK[a[1].state] - MINI_RANK[b[1].state] || b[1].last - a[1].last)
+    .slice(0, MINI_MAX);
+}
+const miniTmp = new THREE.Vector3();
+const FILE_TOOLS = ['Edit', 'MultiEdit', 'Write', 'Read', 'NotebookEdit'];
+const clip = (str, n) => (str.length > n ? str.slice(0, n - 1) + '…' : str);
+// 牌子上的名字:项目名;在读写文件时第二行写文件名(同一个项目开了几个会话也分得清),
+// 都没有文件名又同名时加 #1 #2
+function miniLabels() {
+  const list = [...minis.values()].map(m => {
+    const x = ccSessions.get(m.sid) || {};
+    const file = FILE_TOOLS.includes(x.tool) && x.detail ? clip(x.detail, 14) : '';
+    return { m, project: clip(x.project || t('会话'), 10), file };
+  });
+  const out = new Map(), seen = {};
+  for (const it of list) {
+    const dup = list.filter(o => o.project === it.project && !o.file).length > 1 && !it.file;
+    const n = dup ? (seen[it.project] = (seen[it.project] || 0) + 1) : 0;
+    out.set(it.m, { name: it.project + (n ? ' #' + n : ''), file: it.file });
+  }
+  return out;
+}
+function updateMinis(dt, tm) {
+  const show = !paused && !isClinging() && !['drag', 'leave'].includes(action.type);
+  const want = show ? wantedMinis() : [];
+  const wantIds = new Set(want.map(([sid]) => sid));
+  for (const m of minis.values()) m.gone = !wantIds.has(m.sid);
+  for (const [sid] of want) if (!minis.has(sid) && minis.size < MINI_MAX) minis.set(sid, makeMini(sid));
+  const labels = miniLabels(), tags = [];
+  for (const m of [...minis.values()]) {
+    const x = ccSessions.get(m.sid) || { state: 'done', project: '', since: 0 };
+    const sc = m.pop.step(m.gone ? 0 : 1, dt);
+    if (m.gone && sc < 0.03) {   // 走掉了:回收
+      scene.remove(m.g); m.g.traverse(o => o.geometry?.dispose()); m.tag.remove(); minis.delete(m.sid); continue;
+    }
+    m.g.scale.setScalar(Math.max(0.001, sc));
+    // 跟着大 Clawd 走(慢半拍),大 Clawd 跳起来时也跟着蹦
+    const tx = st.x + MINI_SLOTS[m.slot];
+    m.x += (tx - m.x) * Math.min(1, dt * 4);
+    m.y += (st.y - m.y) * Math.min(1, dt * 6);
+    const ph = tm + m.slot * 1.7;   // 每只错开一点,不齐刷刷地动
+    let by = 0, rz = 0, sq = 1, armR = [0, 0], eyeS = 1, eyeY = 0, shake = 0;
+    if (x.state === 'thinking') { rz = Math.sin(ph * 1.3) * 0.12; eyeY = 0.03; armR = [-0.1, -0.1]; }
+    else if (x.state === 'tool') { by = Math.abs(Math.sin(ph * 9)) * 0.05; armR = [Math.sin(ph * 18) * 0.35 + 0.2, -Math.sin(ph * 18) * 0.35 + 0.2]; eyeY = -0.02; }
+    else if (x.state === 'ask') {
+      const hop = (ph * 1.6) % 1; by = hop < 0.45 ? Math.sin(hop / 0.45 * Math.PI) * 0.3 : 0;
+      armR = [0.2, 1.3 + Math.sin(ph * 12) * 0.35];
+    }
+    else if (x.state === 'waiting') { armR = [0, 1.1 + Math.sin(ph * 6) * 0.4]; }
+    else if (x.state === 'done') {
+      const k = (Date.now() - x.since) / 1000;
+      if (k < 0.8) { by = Math.sin(k / 0.8 * Math.PI) * 0.35; armR = [0.9, 0.9]; }
+      eyeS = 0.3;   // 眯眼笑
+    }
+    else if (x.state === 'error') { sq = 0.9; armR = [-0.4, -0.4]; eyeS = 0.5; shake = Math.sin(tm * 40) * 0.015; }
+    m.g.position.set(m.x + shake, m.y + by, -0.3);
+    m.body.rotation.z = rz;
+    m.body.scale.set(1 / Math.sqrt(sq), sq, 1);
+    m.arms.forEach((a, i) => (a.g.rotation.z = a.s * armR[i]));
+    m.eyes.forEach(e => { e.scale.y = eyeS; e.position.y = (EYE_Y + eyeY / MINI_K) * MINI_K; });
+    // 头顶小牌子:项目名 + 状态图标,等你批准时闪
+    const label = labels.get(m) || { name: '', file: '' };
+    const key = `${x.state}|${label.name}|${label.file}`;
+    if (m.tagKey !== key) {
+      m.tagKey = key;
+      m.tag.innerHTML = `<span>${CC_ICON[x.state] || ''}</span>${esc(label.name)}` + (label.file ? `<em>${esc(label.file)}</em>` : '');
+      m.tag.className = 'mtag show st-' + x.state;
+    }
+    miniTmp.set(m.g.position.x, m.g.position.y + (LEG_L + BH) * MINI_K * sc + 0.15, m.g.position.z).project(camera);
+    const sx = canvasLeft + (miniTmp.x + 1) / 2 * CW, sy = canvasTop + (1 - miniTmp.y) / 2 * CH;
+    m.tag.style.opacity = sc > 0.6 && !m.gone ? 1 : 0;
+    const w = m.tag.offsetWidth, h = m.tag.offsetHeight;
+    tags.push({ m, x: sx - w / 2, y: sy - h, w, h });
+  }
+  // 牌子从左到右摆,和已经摆好的(包括大 Clawd 头上的血条)重叠就挪到它上面
+  const placed = [];
+  if (tags.length && badge.classList.contains('show')) { const b = badge.getBoundingClientRect(); placed.push({ x: b.left, y: b.top, w: b.width, h: b.height }); }
+  for (const r of tags.sort((a, b) => a.x - b.x)) {
+    for (let hit; (hit = placed.find(p => r.x < p.x + p.w + 4 && p.x < r.x + r.w + 4 && r.y < p.y + p.h + 4 && p.y < r.y + r.h + 4));) r.y = hit.y - r.h - 4;
+    placed.push(r);
+    setTransform(r.m.tag, `translate(${Math.round(r.x)}px, ${Math.round(r.y)}px)`);
+  }
+}
+
 // 面板开着时,会话列表里的计时每秒走一下
 setInterval(() => { if (bubbleKind === 'usage' && ccSessions.size) setBubbleHtml(usageHtml(usage), false); }, 1000);
 
@@ -1027,6 +1154,7 @@ let onBattery = false, powerSave = false;
 function targetFps() {
   const cap = onBattery || powerSave ? 30 : 60;
   if (press || hovering || st.air || bubbleKind === 'usage') return cap;
+  if (minis.size) return Math.min(cap, 30);   // 小 Clawd 在动
   if (action.type === 'sleep') return 12;
   if (action.type !== 'rest' && action.type !== 'cling') return cap;
   if (nowSec() - cursor.at > 1.5) return 20;
@@ -1443,6 +1571,7 @@ function frame() {
   rim.position.set(st.x + 3, 4, -5); rim.target.position.set(st.x, 1, 0);
   shadowPlane.position.set(st.x, 0, 0);
   shadowPlane.material.opacity = isClinging() ? 0 : 0.18 * Math.max(0, 1 - st.y / 8);
+  updateMinis(dt, t);
 
   canvasLeft = Math.round(st.x * S - CW / 2);
   canvasTop = Math.round(Hpx - st.y * S - (CH - GROUND_PX));

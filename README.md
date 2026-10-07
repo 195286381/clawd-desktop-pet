@@ -102,6 +102,8 @@ Tick **Claude Code → Connect Claude Code (task alerts)** (连接 Claude Code�
 - **A tool call fails**: Clawd goes `x x` for a moment (no bubble — small failures like a search with no results are common)
 - **Claude stops with an error**: Clawd cries and tells you "⚠️ Claude stopped with an error"
 
+**Mini Clawds**: each active session gets its own little Clawd standing next to the big one (up to 3; sessions waiting for you come first). A pixel tag above it shows the project, plus the file it's working on when it reads or edits one; two sessions in the same project without a file are numbered #1 #2. Its pose shows the state: tilting its head while thinking, typing away while running tools, hopping with a raised hand when it needs your approval, waving while it waits for your reply, a happy hop when done, drooping and shaking on errors. A finished session's mini Clawd leaves after a minute. They hide while Clawd clings to the edge or is being dragged.
+
 **Session list**: the bottom of the usage panel lists your recent Claude Code sessions (up to 5). Each row shows the project name, its current state (💭 thinking / ⚙️ running a command: npm test / ⚙️ editing: App.tsx / 🙋 needs approval / 💬 waiting for you / ✅ done / ⚠️ error) and how long it has been going, updated every second while the panel is open.
 
 All hooks run in the background (`async`), so they never slow Claude Code down. They use `curl` to send events to `127.0.0.1:47615` on your machine; if Clawd isn't running, the command exits silently right away. Each kind of alert can be turned off in the same menu. If you connected an older version of Clawd, it adds the new hooks automatically on launch.
