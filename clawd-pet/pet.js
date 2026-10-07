@@ -648,16 +648,17 @@ window.pet?.onClaude?.(ev => {
     case 'PreToolUse':
       if (!CC_BUSY.includes(x.state)) x.started = now;   // 批准后继续干活,或者中途才连上
       to('tool'); x.since = now; x.tool = ev.tool; x.detail = ev.detail;
-      if (cmdKind(ev.cmd) === 'rm') react('rm');
+      { const k = cmdKind(ev.cmd); if (k === 'rm' || k === 'force' || k === 'sudo') react(k); }
       break;
     case 'PostToolUse': {
       const k = cmdKind(ev.cmd);
-      if (k === 'test') react('test-pass'); else if (k === 'push') react('push');
+      if (k === 'test') react('test-pass'); else if (k === 'build') react('build-pass');
+      else if (['push', 'commit', 'install', 'docker'].includes(k)) react(k);
       break;
     }
     case 'PostToolUseFailure':
       // 工具失败很常见(比如搜索没结果),只晕一下,不弹对话框;测试没过就垂头丧气
-      if (cmdKind(ev.cmd) === 'test') react('test-fail'); else flashFace('dizzy', 1.6);
+      { const k = cmdKind(ev.cmd); if (k === 'test') react('test-fail'); else if (k === 'build') react('build-fail'); else flashFace('dizzy', 1.6); }
       break;
     case 'Stop': {
       const took = now - x.started;
@@ -790,6 +791,18 @@ function smoke(x, y) {   // git push:脚底往两边喷烟
     fxAdd({ x: x + d * rand(0, 14), y: y - rand(0, 6), vx: d * rand(50, 170), vy: rand(-60, -10), g: -40, drag: 2.6, life: rand(0.5, 0.9), color: '#D3CCC0', size: 2 * Math.round(rand(2, 4)) });
   }
 }
+function bubbles(x, y) {   // docker:从头顶冒几个蓝泡泡
+  for (let i = 0; i < 10; i++)
+    fxAdd({ x: x + rand(-18, 18), y, vx: rand(-20, 20), vy: rand(-170, -90), g: -30, drag: 1, life: rand(0.9, 1.4), color: '#6A9BCC', size: 2 * Math.round(rand(2, 4)) });
+}
+function boxes(x, y) {   // 装依赖:几个小纸箱从头顶上方落下,砸在头上
+  for (let i = 0; i < 3; i++)
+    fxAdd({ x: x + (i - 1) * 12 - 6, y: y - 70 - i * 26, vx: 0, vy: 0, g: 1500, drag: 0, life: 0.5 + i * 0.05, color: i % 2 ? '#B98B5A' : '#D6B07C', size: 12 });
+}
+function sparkles(x, y) {   // 构建成功:头顶闪一把金色小星星
+  for (let i = 0; i < 12; i++)
+    fxAdd({ x: x + rand(-24, 24), y: y - rand(0, 20), vx: rand(-40, 40), vy: rand(-120, -40), g: 120, drag: 1.2, life: rand(0.6, 1), color: i % 2 ? '#D4A24C' : '#F2E3B0', size: 4 });
+}
 function crabLeave(state, r, dir) {
   fxAdd({ crab: true, x: r.left, y: r.top, h: r.height, vx: dir * 70, vy: -240, g: 1100, dir, phase: 'hop', hops: state === 'error' ? 0 : 2, belly: state === 'error', life: 30 },
     `crab rider st-${state}`, `<svg viewBox="0 0 9 5" width="18" height="10">${CRAB_RECTS}</svg>`);
@@ -840,10 +853,18 @@ function updateFx(dt) {
 
 // ---------------- 对 Claude 干的活做出反应 ----------------
 // 测试全过:蹦起来撒彩纸;没过:垂头丧气;git push 成功:像火箭一样蹿起来,脚底冒烟;rm -rf:吓得缩成一团发抖
+// 强制推送:比 rm -rf 更紧张;git commit:盖章;装依赖:头顶落下一堆箱子;构建:成功闪星星、失败垂头丧气;docker:冒蓝泡泡;sudo:皱眉
+// 顺序有讲究:先匹配到的优先(强制推送要排在 push 前,sudo 排最后)
 const CMD_KINDS = [
   ['rm', /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|-[rR]\s+-f|-f\s+-[rR])\b/],
+  ['force', /\bgit\b[^;&|]*\spush\b[^;&|]*(\s--force(?!-with)\b|\s-[a-zA-Z]*f[a-zA-Z]*\b|\s\+\S)/],
   ['push', /\bgit\b[^;&|]*\spush\b/],
+  ['commit', /\bgit\b[^;&|]*\scommit\b/],
   ['test', /\b(npm|pnpm|yarn|bun)\s+(run\s+)?test\b|\b(pytest|jest|vitest|rspec|phpunit|mocha)\b|\b(go|cargo|swift|mix|dotnet|deno)\s+test\b|\bmake\s+(test|check)\b/],
+  ['build', /\b(npm|pnpm|yarn|bun)\s+(run\s+)?build\b|\b(cargo|go|swift|dotnet|gradle|mvn)\s+build\b|\bxcodebuild\b|\btsc\b|\bmake\b(?!\s+(test|check))/],
+  ['install', /\b(npm|pnpm|yarn|bun)\s+(install|i|add|ci)\b|\bpip3?\s+install\b|\bbrew\s+install\b|\bcargo\s+(add|install)\b|\bgo\s+(get|mod\s+download)\b|\bbundle\s+install\b/],
+  ['docker', /\bdocker(-compose|\s+compose)?\s+(build|run|up|compose)\b/],
+  ['sudo', /(^|[;&|]\s*)sudo\b/],
 ];
 const cmdKind = c => (c && (CMD_KINDS.find(([, re]) => re.test(c)) || [])[0]) || '';
 const reactAt = {};
@@ -857,6 +878,13 @@ function react(kind) {
   else if (kind === 'test-fail') { setAction({ type: 'slump', dur: 2.4 }); flashFace('cry', 2.4); sfx('low'); }
   else if (kind === 'push') { setAction({ type: 'jump', dir: 0, big: true }); flashFace('joy', 1.6); sfx('leave'); smoke(an.x, Hpx - st.y * S); }
   else if (kind === 'rm') { setAction({ type: 'shiver', dur: 1.6 }); flashFace('surprised', 1.6); sweatT = clock.elapsedTime; }
+  else if (kind === 'force') { setAction({ type: 'shiver', dur: 2.4 }); flashFace('dizzy', 2.4); sweatT = clock.elapsedTime; }
+  else if (kind === 'commit') { setAction({ type: 'jump', dir: 0 }); flashFace('happy', 1.2); sfx('recover'); }
+  else if (kind === 'install') { setAction({ type: 'slump', dur: 1.2 }); flashFace('surprised', 1.2); boxes(an.x, an.top); }
+  else if (kind === 'build-pass') { setAction({ type: 'jump', dir: 0 }); flashFace('joy', 1.4); sfx('recover'); sparkles(an.x, an.top); }
+  else if (kind === 'build-fail') { setAction({ type: 'slump', dur: 2.4 }); flashFace('cry', 2.4); sfx('low'); }
+  else if (kind === 'docker') { setAction({ type: 'jump', dir: 0 }); flashFace('wink', 1.4); bubbles(an.x, an.top); }
+  else if (kind === 'sudo') { setAction({ type: 'shiver', dur: 0.8 }); flashFace('annoyed', 1.6); }
 }
 // 血条里的内容:格子 = 5 小时额度,小圆环 = 本周额度;nums 时两个百分比都写出来
 function usageHTML(L, vert, nums) {
