@@ -753,6 +753,24 @@ function updateDots() {   // 光标停在小螃蟹上时的会话详情
   setTransform(dotsTip, `translate(${tx}px, ${ty}px)`);
 }
 
+// ---------------- 等太久再催一下 ----------------
+// Claude 等你批准(权限确认 / 有问题问你)超过 3 分钟还没处理,Clawd 再挥手提醒;之后每 5 分钟一次,最多催 3 次。
+// 你一处理,会话状态变了,计时就重新开始。「等你回复」不催(回答完了等你下一句很正常)。
+const NUDGE_FIRST = 3 * 60e3, NUDGE_EVERY = 5 * 60e3, NUDGE_MAX = 3;
+setInterval(() => {
+  if (!ccNotify.ask || paused || bubbleKind === 'usage' || action.type === 'drag') return;
+  const now = Date.now();
+  for (const x of ccSessions.values()) {
+    if (x.state !== 'ask') continue;
+    if (x.nudgeFor !== x.since) { x.nudgeFor = x.since; x.nudges = 0; }   // 新的一次等待
+    if (x.nudges >= NUDGE_MAX || now - x.since < NUDGE_FIRST + x.nudges * NUDGE_EVERY) continue;
+    x.nudges++;
+    sfx('ask');
+    ccAlert(t('🙋 <b>{0}</b> 还在等你批准<br>已经等了 {1}', esc(x.project || t('会话')), fmtMin(Math.round((now - x.since) / 60e3))), 8);
+    break;   // 一次只催一个
+  }
+}, 15e3);
+
 // 面板开着时,会话列表里的计时每秒走一下
 setInterval(() => { if (bubbleKind === 'usage' && ccSessions.size) setBubbleHtml(usageHtml(usage), false); }, 1000);
 

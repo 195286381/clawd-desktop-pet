@@ -99,6 +99,7 @@ Tick **Claude Code → Connect Claude Code (task alerts)** (连接 Claude Code�
 - **Claude is working**: Clawd pulls out a little laptop and works along with you, and its self-talk says what Claude is doing, e.g. "Claude is running a command: npm test…"
 - **A reply is done** (only for tasks that took 15 seconds or more): Clawd jumps and reports "Claude is done ✅", with the project name
 - **Claude needs your approval / is waiting for your reply / has a question for you**: Clawd waves, e.g. "🙋 Wants to use Bash — needs your approval"
+- **Still waiting for your approval**: if an approval (or a question from Claude) has been waiting for 3 minutes, Clawd waves again, e.g. "🙋 clawd is still waiting for your approval", then every 5 minutes, at most 3 times. Once you respond, the timer resets
 - **A tool call fails**: Clawd goes `x x` for a moment (no bubble — small failures like a search with no results are common)
 - **Claude stops with an error**: Clawd cries and tells you "⚠️ Claude stopped with an error"
 
