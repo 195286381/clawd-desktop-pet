@@ -24,35 +24,35 @@
     font: 12px/12px "Ark Pixel", -apple-system, "PingFang SC", sans-serif; -webkit-font-smoothing: none; white-space: nowrap;
     pointer-events: none; transition: opacity .25s; font-variant-numeric: tabular-nums; }
   #badge.show { opacity: 1; }
-  #badge .hp { display: flex; gap: 2px; }
-  #badge .hp i { width: 5px; height: 8px; border-radius: 1.5px; background: #EDE6DA; transition: background .4s; }
-  #badge b { color: #8A8470; font-weight: normal; }
+  :is(#badge, #dotstip .usage) .hp { display: flex; gap: 2px; }
+  :is(#badge, #dotstip .usage) .hp i { width: 5px; height: 8px; border-radius: 1.5px; background: #EDE6DA; transition: background .4s; }
+  :is(#badge, #dotstip .usage) b { color: #8A8470; font-weight: normal; }
   #badge.vert { flex-direction: column; gap: 4px; padding: 6px 4px; }
   #badge.vert .hp { flex-direction: column-reverse; }
   #badge.vert .hp i { width: 8px; height: 5px; }
   #badge.vert b { display: flex; flex-direction: column; align-items: center; line-height: 12px; }
   #badge.vert b span { display: block; }
   /* 五档配色取自油画颜料:绿土 → 土黄 → 焦赭 → 茜素红 → 戴维灰,饱和度统一压低,和陶土橘、米白气泡同一调子 */
-  #badge.lv0 .hp i.on { background: #7FA383; }
-  #badge.lv1 .hp i.on { background: #D4A24C; }
-  #badge.lv2 .hp i.on { background: #C8703F; }  #badge.lv2 b { color: #9C4E24; }
-  #badge.lv3 .hp i.on { background: #B8433F; }  #badge.lv3 b { color: #93302D; }
-  #badge.lv3 .hp { animation: blink 1.2s ease-in-out infinite; }
+  :is(#badge, #dotstip .usage).lv0 .hp i.on { background: #7FA383; }
+  :is(#badge, #dotstip .usage).lv1 .hp i.on { background: #D4A24C; }
+  :is(#badge, #dotstip .usage).lv2 .hp i.on { background: #C8703F; }  :is(#badge, #dotstip .usage).lv2 b { color: #9C4E24; }
+  :is(#badge, #dotstip .usage).lv3 .hp i.on { background: #B8433F; }  :is(#badge, #dotstip .usage).lv3 b { color: #93302D; }
+  :is(#badge, #dotstip .usage).lv3 .hp { animation: blink 1.2s ease-in-out infinite; }
   /* 悬停时圆环旁边显示本周百分比,颜色按本周额度的档位 */
-  #badge b.wk { color: #8A8470; }
-  #badge b.wk.lv2 { color: #9C4E24; }  #badge b.wk.lv3 { color: #93302D; }  #badge b.wk.lv4 { color: #6E6B67; }
+  :is(#badge, #dotstip .usage) b.wk { color: #8A8470; }
+  :is(#badge, #dotstip .usage) b.wk.lv2 { color: #9C4E24; }  :is(#badge, #dotstip .usage) b.wk.lv3 { color: #93302D; }  :is(#badge, #dotstip .usage) b.wk.lv4 { color: #6E6B67; }
   /* 本周额度小圆环:颜色同样按五档 */
-  #badge .ring { width: 15px; height: 15px; flex: none; }
-  #badge .ring circle { fill: none; stroke-width: 2.6; }
-  #badge .ring .track { stroke: #EDE6DA; }
-  #badge .ring .arc { stroke-linecap: round; transition: stroke-dasharray .4s; }
-  #badge .ring.lv0 .arc { stroke: #7FA383; }
-  #badge .ring.lv1 .arc { stroke: #D4A24C; }
-  #badge .ring.lv2 .arc { stroke: #C8703F; }
-  #badge .ring.lv3 .arc { stroke: #B8433F; }
-  #badge .ring.lv4 .arc { stroke: none; }
-  #badge .ring.lv4 .track { stroke: #D6D3CF; }
-  #badge.lv4 b { color: #6E6B67; }
+  :is(#badge, #dotstip .usage) .ring { width: 15px; height: 15px; flex: none; }
+  :is(#badge, #dotstip .usage) .ring circle { fill: none; stroke-width: 2.6; }
+  :is(#badge, #dotstip .usage) .ring .track { stroke: #EDE6DA; }
+  :is(#badge, #dotstip .usage) .ring .arc { stroke-linecap: round; transition: stroke-dasharray .4s; }
+  :is(#badge, #dotstip .usage) .ring.lv0 .arc { stroke: #7FA383; }
+  :is(#badge, #dotstip .usage) .ring.lv1 .arc { stroke: #D4A24C; }
+  :is(#badge, #dotstip .usage) .ring.lv2 .arc { stroke: #C8703F; }
+  :is(#badge, #dotstip .usage) .ring.lv3 .arc { stroke: #B8433F; }
+  :is(#badge, #dotstip .usage) .ring.lv4 .arc { stroke: none; }
+  :is(#badge, #dotstip .usage) .ring.lv4 .track { stroke: #D6D3CF; }
+  :is(#badge, #dotstip .usage).lv4 b { color: #6E6B67; }
   @keyframes blink { 50% { opacity: .45; } }
 
   /* 头顶气泡 */
@@ -93,6 +93,18 @@
       var(--tail) calc(100% - 3px), var(--tail) 100%,
       calc(var(--tail) - 6px) 100%, calc(var(--tail) - 6px) calc(100% - 9px), 0 calc(100% - 9px)); }
   #bubble.say { color: #3A322A; }
+  /* 批准权限:命令原样显示,三个像素按钮 */
+  #bubble.perm.show { pointer-events: auto; max-width: 340px; }
+  #bubble.perm code { display: block; margin: 6px 0 2px; padding: 4px 6px; background: #F1E6D3; color: #5B4A3A; font: inherit;
+    white-space: pre-wrap; word-break: break-all; max-height: 84px; overflow: hidden; letter-spacing: 0; }
+  #bubble.perm .btns { display: flex; gap: 6px; margin-top: 7px; }
+  #bubble.perm button { font: inherit; letter-spacing: inherit; padding: 3px 9px 4px; border: 0; border-radius: 0; cursor: pointer;
+    background: #EDE2CF; color: #3A322A; box-shadow: 0 0 0 2px #4A3F35, inset 0 -2px 0 rgba(0, 0, 0, .12); }
+  #bubble.perm button[data-d="allow"] { background: #7FA383; color: #FFF8EC; }
+  #bubble.perm button[data-d="deny"] { background: #B8433F; color: #FFF8EC; }
+  #bubble.perm button:hover { filter: brightness(1.08); }
+  #bubble.perm button:active { translate: 0 1px; }
+  #bubble.perm .more { display: block; margin-top: 6px; font-style: normal; color: #A39E90; }
   #bubble.say b { color: #B85C3A; }
   /* 自言自语:没有尖角,下面挂两颗像素小方块;描边更浅、字更柔和 */
   #bubble.chat { color: #6B6150; }
@@ -139,6 +151,8 @@
   #dotstip i { font-style: normal; color: #A39E90; text-align: right; }
   #dotstip .st-ask b, #dotstip .st-waiting b, #dotstip .st-error b { color: #B8433F; }
   #dotstip p { grid-column: 1 / -1; margin: 0; color: #A39E90; }
+  /* 会话详情和血条同时出现时合成一个框:用量在最上面一行,虚线隔开 */
+  #dotstip > .usage { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; padding-bottom: 6px; border-bottom: 1px dashed #E8DFD0; }
   #bubble .foot { white-space: normal; line-height: 16px; }
   #bubble .foot span { white-space: nowrap; }
   #bubble .quota { margin: 2px 0 6px; }
