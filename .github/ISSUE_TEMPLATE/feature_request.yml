@@ -1,0 +1,20 @@
+name: Feature request
+description: An idea to make Clawd more useful or more fun
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Clawd to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why?
+      description: What problem does it solve, or what moment would it make better?
+  - type: textarea
+    id: look
+    attributes:
+      label: How should it look?
+      description: Optional. Sketches, screenshots or references are welcome.

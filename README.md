@@ -42,8 +42,8 @@ Everything runs locally. Clawd **never reads your login credentials**, and check
 Requires macOS on Apple silicon, [Node.js](https://nodejs.org), and the [Claude Code](https://code.claude.com) CLI (signed in — it's used to check your quota).
 
 ```bash
-git clone https://github.com/195286381/clawd-desktop-pet.git
-cd clawd-desktop-pet/clawd-pet
+git clone https://github.com/195286381/clawd-pet.git
+cd clawd-pet/clawd-pet
 npm install
 npm run package && ditto dist/Clawd-darwin-arm64/Clawd.app /Applications/Clawd.app
 open /Applications/Clawd.app
@@ -235,7 +235,7 @@ CLAWD_LANG=en npm start          # force the interface language (en / zh) withou
 Check the usage statistics on their own: `cd clawd-pet && node usage.js`
 
 ```
-clawd-desktop-pet/
+clawd-pet/
 ├── clawd-pet/                 the desktop pet (Electron + three.js)
 │   ├── main.js                main process: transparent always-on-top window, click-through, menu bar / Dock, usage scheduling, Claude Code hooks
 │   ├── preload.js             bridge between the main process and the page
@@ -277,6 +277,10 @@ Regenerate the menu bar icon (needs Pillow): `python3 build/make_tray.py`
 Clawd is Anthropic's mascot. This is a personal hobby project, not affiliated with or endorsed by Anthropic.
 
 Text in the bubbles, usage panel and quota bar uses the [Ark Pixel Font](https://github.com/TakWolf/ark-pixel-font) 12px Simplified Chinese edition, © TakWolf, licensed under the [SIL Open Font License 1.1](clawd-pet/fonts/ark-pixel-OFL.txt).
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Found a security problem? Please follow [SECURITY.md](SECURITY.md).
 
 ## License
 

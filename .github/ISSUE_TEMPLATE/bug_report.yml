@@ -1,0 +1,41 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead? Screenshots or a screen recording help a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: e.g. macOS 26.1, M3 MacBook Air
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Clawd version or commit
+      placeholder: e.g. v1.0.0 or a1b2c3d
+  - type: input
+    id: claude
+    attributes:
+      label: Claude Code version and where you run it
+      placeholder: e.g. 2.3.0 in iTerm / Terminal / VS Code / Claude app
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Paste the relevant part of `~/Library/Application Support/Clawd/clawd.log`, if any.
+      render: text

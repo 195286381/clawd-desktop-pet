@@ -1,14 +1,14 @@
 {
   "name": "clawd-pet",
   "version": "1.0.0",
-  "description": "Clawd 3D 桌宠",
+  "description": "A tiny 3D Clawd that lives on your macOS desktop and keeps an eye on Claude Code for you.",
   "main": "main.js",
   "private": true,
   "license": "MIT",
   "author": "zhuzhiwei",
   "repository": {
     "type": "git",
-    "url": "https://github.com/195286381/clawd-desktop-pet.git"
+    "url": "https://github.com/195286381/clawd-pet.git"
   },
   "scripts": {
     "start": "electron .",
