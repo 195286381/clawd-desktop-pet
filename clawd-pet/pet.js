@@ -689,7 +689,7 @@ window.pet?.onClaude?.(ev => {
 // 每个 Claude Code 会话一只像素小螃蟹,不加框直接趴在 Clawd 头顶,跟着它一起转(贴边时侧过来趴在朝屏幕里的头顶上)。颜色表示状态:
 // 灰 = 思考中,橙 = 在干活(轻轻颠),红 = 等你批准 / 回复(头顶一个像素「!」,一起蹦),绿 = 刚做完,红 = 出错
 // (做完 / 出错的 1 分钟后消失)。光标移到小螃蟹上,列出每个会话在干什么。
-const DOT_MAX = 6, DOT_DONE_KEEP = 60e3, RIDERS_MAX = 4;   // 头顶最多趴 4 只,多的显示 +N
+const DOT_MAX = 6, DOT_DONE_KEEP = 60e3, RIDERS_MAX = SCALE < 0.6 ? 3 : 4;   // 头顶最多趴 4 只(迷你只有 3 只的地方),多的显示 +N
 const DOT_RANK = { ask: 0, waiting: 1, tool: 2, thinking: 3, error: 4, done: 5 };
 const CRAB_PX = ['.#######.', '.#.###.#.', '#########', '.#######.', '.#.#.#.#.'];   // 9×5 像素,和菜单栏图标同一个造型
 const CRAB_RECTS = CRAB_PX.flatMap((row, y) => [...row].map((c, x) => (c === '#' ? `<rect x="${x}" y="${y}" width="1" height="1"/>` : ''))).join('');
@@ -806,7 +806,7 @@ function showPerm() {
   const p = permShown = permQueue[0];
   if (bubbleKind === 'usage') hideBubble();
   say(t('🙋 <b>{0}</b> 要用 <b>{1}</b>', esc(p.project || t('会话')), esc(p.tool)) + (p.preview ? `<code>${esc(p.preview)}</code>` : '')
-    + `<div class="btns"><button data-d="allow">${t('允许')}</button><button data-d="deny">${t('拒绝')}</button><button data-d="pass">${t('去终端处理')}</button></div>`
+    + `<div class="btns"><button data-d="allow">${t('允许')}<small>⌥⌘Y</small></button><button data-d="deny">${t('拒绝')}<small>⌥⌘N</small></button><button data-d="pass">${t('去终端处理')}</button></div>`
     + (permQueue.length > 1 ? `<i class="more">${t('后面还有 {0} 个', permQueue.length - 1)}</i>` : ''), 3600, 'perm');
   bubble.classList.add('say');   // 外观和对你说话的气泡一样
   sfx('ask');
@@ -827,13 +827,16 @@ function showPermCount() {   // 排队的数量变了:更新「后面还有 N �
 }
 bubble.addEventListener('click', e => {
   const b = e.target.closest('button[data-d]');
-  if (!b || !permShown) return;
-  const p = permShown, d = b.dataset.d;
+  if (b) decidePerm(b.dataset.d);
+});
+function decidePerm(d) {   // 点按钮或按快捷键
+  if (!permShown) return;
+  const p = permShown;
   window.pet?.permDecision(p.id, d);
   sfx(d === 'allow' ? 'pop' : 'poke');
   if (d === 'pass' && p.app) window.pet?.focusSession({ app: p.app, tty: p.tty, host: p.host });   // 去终端处理:顺便跳过去
   dropPerm(p.id);
-});
+}
 
 // ---------------- 你离开时的小结 ----------------
 // 5 分钟没碰键盘鼠标:Clawd 去睡觉,记下这期间哪些会话做完 / 出错;一回来就醒,告诉你错过了什么
@@ -1011,6 +1014,7 @@ window.pet?.onCommand(cmd => {
   }
   if (cmd === 'back') { userAway = false; welcomeBack(); return; }
   if (cmd.startsWith('perm-cancel:')) { dropPerm(Number(cmd.slice(12))); return; }
+  if (cmd.startsWith('perm-key:')) { decidePerm(cmd.slice(9)); return; }
   if (action.type === 'drag' || action.type === 'leave') return;
   if (isClinging() && ['jump', 'wave', 'dance', 'lean', 'walk', 'home'].includes(cmd)) stopCling();
   if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }
