@@ -18,7 +18,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
-<p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
+<p align="center"><a href="README.md">English</a> · <b>简体中文</b> · <a href="README.ja.md">日本語</a></p>
 
 <p align="center"><img src="docs/hero.gif" width="532" alt="Clawd 头顶趴着三只会话小螃蟹：一只顶着红色「!」等你批准，测试通过时彩纸飞起，然后报告「Claude 做完啦 ✅」"></p>
 
@@ -248,6 +248,7 @@ clawd-pet/
 │   └── build/                 应用图标（Blender 渲染脚本 + 合成脚本）、菜单栏图标生成脚本
 ├── README.md                  英文说明
 ├── README.zh-CN.md            中文说明
+├── README.ja.md               日文说明
 └── docs/                      README 用的图片（用 CLAWD_DEMO=1 的示例数据截取）
 ```
 
