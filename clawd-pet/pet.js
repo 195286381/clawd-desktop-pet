@@ -678,17 +678,21 @@ window.pet?.onClaude?.(ev => {
   if (wasWorking !== ccWorking() && action.type === 'rest') delete action.prop;   // 状态一变,马上拿起 / 放下电脑
   if (bubbleKind === 'usage') setBubbleHtml(usageHtml(usage), false);   // 面板开着就马上更新会话列表
 });
-// ---------------- 会话小螃蟹:一个 Claude Code 会话一只像素小螃蟹 ----------------
-// 血条亮着时装在血条胶囊里(竖线隔开),血条没亮时单独一个小胶囊挂在头顶。颜色表示状态:
-// 灰 = 思考中,橙 = 在干活,红色蹦跳 = 等你批准 / 回复,绿 = 刚做完,红 = 出错(做完 / 出错的 1 分钟后消失)。
-// 光标移到小螃蟹上,列出每个会话在干什么。
-const DOT_MAX = 6, DOT_DONE_KEEP = 60e3;
+// ---------------- 会话小螃蟹 & 任务标记「!」 ----------------
+// 每个 Claude Code 会话一只像素小螃蟹,不加框直接趴在 Clawd 头顶,跟着它一起转(贴边时侧过来趴在朝屏幕里的头顶上)。颜色表示状态:
+// 灰 = 思考中,橙 = 在干活(轻轻颠),红 = 等你批准 / 回复(头顶一个像素「!」,一起蹦),绿 = 刚做完,红 = 出错
+// (做完 / 出错的 1 分钟后消失)。光标移到小螃蟹上,列出每个会话在干什么。
+const DOT_MAX = 6, DOT_DONE_KEEP = 60e3, RIDERS_MAX = 4;   // 头顶最多趴 4 只,多的显示 +N
 const DOT_RANK = { ask: 0, waiting: 1, tool: 2, thinking: 3, error: 4, done: 5 };
 const CRAB_PX = ['.#######.', '.#.###.#.', '#########', '.#######.', '.#.#.#.#.'];   // 9×5 像素,和菜单栏图标同一个造型
 const CRAB_RECTS = CRAB_PX.flatMap((row, y) => [...row].map((c, x) => (c === '#' ? `<rect x="${x}" y="${y}" width="1" height="1"/>` : ''))).join('');
-const crabSvg = state => `<svg class="crab st-${state}" viewBox="0 0 9 5" width="18" height="10">${CRAB_RECTS}</svg>`;
-const dotsEl = document.getElementById('dots'), dotsTip = document.getElementById('dotstip');
-let dotsHover = false, dotList = [], crabsHtml = '', dotsTarget = null;
+const BANG = '<svg class="bang" viewBox="0 0 1 6" width="2" height="12"><rect width="1" height="4"/><rect y="5" width="1" height="1"/></svg>';   // 像素「!」
+const crabSvg = state => {
+  const crab = `<svg class="crab" viewBox="0 0 9 5" width="18" height="10">${CRAB_RECTS}</svg>`;
+  return `<i class="rider st-${state}">${state === 'ask' || state === 'waiting' ? BANG : ''}${crab}</i>`;   // 等你的那只头顶一个「!」
+};
+const dotsTip = document.getElementById('dotstip'), ridersEl = document.getElementById('riders');
+let dotsHover = false, dotList = [], dotsTargets = [], ridersTop = Infinity, ridersSide = 0;
 function dotSessions() {   // 要显示的会话:干活 / 等你的,加上刚做完或出错不到 1 分钟的;等你的排前面
   ccPurge();
   const now = Date.now();
@@ -697,26 +701,41 @@ function dotSessions() {   // 要显示的会话:干活 / 等你的,加上刚做
     .sort((a, b) => DOT_RANK[a[1].state] - DOT_RANK[b[1].state] || b[1].started - a[1].started)
     .slice(0, DOT_MAX);
 }
-function refreshDots() {   // 每帧在画血条之前算好:血条要把小螃蟹装进去
+const headPt = new THREE.Vector3(), headUp = new THREE.Vector3();
+// 身体顶面中心在屏幕上的位置,以及「头顶朝上」在屏幕上的方向(取最接近的 90° 倍数,像素保持清晰;
+// 贴边时 Clawd 侧过来,头顶朝着屏幕里面)。按不带呼吸的姿态量,螃蟹不会一像素一像素地抖
+function headTopScreen() {
+  const pos = bodyG.position.clone(), scl = bodyG.scale.clone();
+  if (steadyPose) setBodyPose(...steadyPose);
+  root.updateMatrixWorld(true); camera.updateMatrixWorld();
+  headPt.set(0, BH / 2, 0).applyMatrix4(bodyMesh.matrixWorld).project(camera);
+  headUp.set(0, BH / 2 + 1, 0).applyMatrix4(bodyMesh.matrixWorld).project(camera);
+  bodyG.position.copy(pos); bodyG.scale.copy(scl); root.updateMatrixWorld(true);
+  const deg = Math.atan2(headUp.x - headPt.x, (headUp.y - headPt.y) * CH / CW) * 180 / Math.PI;
+  return { x: canvasLeft + (headPt.x + 1) / 2 * CW, y: canvasTop + (1 - headPt.y) / 2 * CH, rot: Math.round(deg / 90) * 90 };
+}
+// 每帧在画血条之前:算出要显示的会话,摆好头顶的小螃蟹(血条和气泡要让到它们上面)
+function updateRiders() {
   // 打开用量面板时先藏起来(面板里本来就列着会话);其他气泡出现时照常显示,气泡会抬到它上面
   dotList = paused || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : dotSessions();
-  crabsHtml = dotList.map(([, x]) => crabSvg(x.state)).join('');
+  const html = dotList.slice(0, RIDERS_MAX).map(([, x]) => crabSvg(x.state)).join('')
+    + (dotList.length > RIDERS_MAX ? `<b>+${dotList.length - RIDERS_MAX}</b>` : '');
+  if (ridersEl.dataset.html !== html) { ridersEl.dataset.html = html; ridersEl.innerHTML = html; }
+  ridersEl.classList.toggle('show', dotList.length > 0);
+  ridersTop = Infinity; ridersSide = 0;
+  if (!dotList.length) return;
+  const w = ridersEl.offsetWidth, h = ridersEl.offsetHeight, hp = headTopScreen();
+  // 整组以脚底中点为轴,跟着头顶的朝向转;脚稍微陷进顶面一点,像趴在上面
+  const x = Math.round(hp.x - w / 2), y = Math.round(hp.y - h + 2);
+  setTransform(ridersEl, `translate(${x}px, ${y}px) rotate(${hp.rot}deg)`);
+  if (hp.rot === 0) ridersTop = y;     // 站着:血条、气泡挂到螃蟹上面
+  else ridersSide = h + 2;             // 侧着(贴边):螃蟹占了身体朝屏幕里的那一侧,血条再往里让开
 }
-function updateDots() {   // 血条没亮时的独立小胶囊 + 悬停详情
-  const alone = dotList.length > 0 && !badge.classList.contains('show');
-  if (alone && dotsEl.dataset.html !== crabsHtml) { dotsEl.dataset.html = crabsHtml; dotsEl.innerHTML = crabsHtml; }
-  dotsEl.classList.toggle('show', alone);
-  dotsEl.classList.toggle('vert', isClinging());
-  dotsTarget = alone ? dotsEl : dotList.length ? badge.querySelector('.crabs') : null;
-  if (!dotsTarget) { dotsHover = false; dotsTip.classList.remove('show'); return; }
-  if (alone) {
-    const w = dotsEl.offsetWidth, h = dotsEl.offsetHeight, an = petAnchor();
-    // 贴边:挂在身体朝屏幕里的一侧;站着:挂在头顶
-    let x = isClinging() ? (action.side > 0 ? an.left - w - 10 : an.right + 10) : an.x - w / 2;
-    let y = isClinging() ? an.midY - h / 2 : an.top - h - 8;
-    x = Math.round(Math.min(Wpx - w - 8, Math.max(8, x))); y = Math.round(Math.min(Hpx - h - 8, Math.max(8, y)));
-    setTransform(dotsEl, `translate(${x}px, ${y}px)`);
-  }
+// 头顶最高处:身体 / 道具的顶边,头上趴着螃蟹时取螃蟹(连同「!」)的顶边。血条、气泡都挂在它上面
+const petTop = an => Math.min(an.top, ridersTop - 4);
+function updateDots() {   // 光标停在小螃蟹上时的会话详情
+  dotsTargets = dotList.length ? [ridersEl] : [];
+  if (!dotsTargets.length) { dotsHover = false; dotsTip.classList.remove('show'); return; }
   // 悬停详情:每个会话一行(图标 项目 在干什么 多久)
   dotsTip.classList.toggle('show', dotsHover);
   if (!dotsHover) return;
@@ -726,9 +745,11 @@ function updateDots() {   // 血条没亮时的独立小胶囊 + 悬停详情
     return `<div class="st-${s.state}"><span>${CC_ICON[s.state] || ''} ${esc(s.project || t('会话'))}</span><b>${esc(ccActivity(s, true))}</b><i>${time}</i></div>`;
   }).join('');
   if (dotsTip.dataset.html !== html) { dotsTip.dataset.html = html; dotsTip.innerHTML = html; }
-  const r = dotsTarget.getBoundingClientRect(), tw = dotsTip.offsetWidth, th = dotsTip.offsetHeight;
-  const tx = Math.round(Math.min(Wpx - tw - 8, Math.max(8, r.left + r.width / 2 - tw / 2)));
-  const ty = Math.round(r.top - th - 8 < 8 ? r.bottom + 8 : r.top - th - 8);
+  const rs = dotsTargets.map(e => e.getBoundingClientRect());
+  const top = Math.min(...rs.map(r => r.top)), bottom = Math.max(...rs.map(r => r.bottom)), cx = rs[0].left + rs[0].width / 2;
+  const tw = dotsTip.offsetWidth, th = dotsTip.offsetHeight;
+  const tx = Math.round(Math.min(Wpx - tw - 8, Math.max(8, cx - tw / 2)));
+  const ty = Math.round(top - th - 8 < 8 ? bottom + 8 : top - th - 8);
   setTransform(dotsTip, `translate(${tx}px, ${ty}px)`);
 }
 
@@ -924,9 +945,8 @@ window.pet?.onCursor(p => {
   if (paused) return;
 
   const onPet = hitTest(p.x, p.y);
-  if (dotsTarget) {   // 光标在会话小螃蟹上(多留 6px 余量):显示每个会话的详情
-    const r = dotsTarget.getBoundingClientRect();
-    dotsHover = p.x > r.left - 6 && p.x < r.right + 6 && p.y > r.top - 6 && p.y < r.bottom + 6;
+  if (dotsTargets.length) {   // 光标在会话小螃蟹或「!」上(多留 6px 余量):显示每个会话的详情
+    dotsHover = dotsTargets.some(el => { const r = el.getBoundingClientRect(); return p.x > r.left - 6 && p.x < r.right + 6 && p.y > r.top - 6 && p.y < r.bottom + 6; });
     if (dotsHover && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }   // 在看详情:别走开
   } else dotsHover = false;
   if (onPet && !hovering) hoverSince = now;
@@ -1522,7 +1542,7 @@ function frame() {
   // ---- 10. 头顶血条:格子 = 5 小时额度,旁边的小圆环 = 本周额度。有额度数据就常驻(气泡开着时让位) ----
   const L = usage && usage.limits;
   if (hovering || dotsHover) hpHoverUntil = t + 1.5;   // 悬停模式:移开后再停 1.5 秒(在看小螃蟹详情时也别收起)
-  refreshDots();
+  updateRiders();
   const hpOn = hpMode === 'always' || (hpMode === 'hover' && t < hpHoverUntil);
   if (hpOn && L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused) {
     const r = Math.max(0, Math.round(L.fiveHour ? L.fiveHour.remaining : 100));   // 5 小时窗口过期 = 已重置,满格
@@ -1532,22 +1552,21 @@ function frame() {
     const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt, true)}` : hl >= 2 || nums ? `${r}%` : '';
     const wk = L.sevenDay ? Math.max(0, Math.min(100, Math.round(L.sevenDay.remaining))) : null;
     const pct = (v, cls = '') => vert ? `<b class="${cls}"><span>${v}</span><span>%</span></b>` : `<b class="${cls}">${v}%</b>`;
-    const key = `${hl}|${cells}|${text}|${vert}|${wk}|${nums}|${crabsHtml}`;
+    const key = `${hl}|${cells}|${text}|${vert}|${wk}|${nums}`;
     if (badge.dataset.key !== key) {
       badge.dataset.key = key;
       badge.innerHTML = '<div class="hp">' + Array.from({ length: 10 }, (_, i) => `<i${i < cells ? ' class="on"' : ''}></i>`).join('') + '</div>'
         + (!text ? '' : vert ? pct(r) : `<b>${text}</b>`)
         + (wk === null ? '' : `<svg class="ring lv${levelOf(wk)}" viewBox="0 0 16 16"><circle class="track" cx="8" cy="8" r="6"/>`
           + `<circle class="arc" cx="8" cy="8" r="6" pathLength="100" stroke-dasharray="${wk} 100" transform="rotate(-90 8 8)"/></svg>`
-          + (nums ? pct(wk, `wk lv${levelOf(wk)}`) : ''))
-        + (crabsHtml ? `<i class="sep"></i><span class="crabs">${crabsHtml}</span>` : '');   // Claude Code 会话小螃蟹
+          + (nums ? pct(wk, `wk lv${levelOf(wk)}`) : ''));
     }
     const cls = 'show lv' + hl + (vert ? ' vert' : '');
     if (badge.className !== cls) badge.className = cls;
     const bw = badge.offsetWidth, bh = badge.offsetHeight, an = petAnchor();
     // 站着:挂在头顶;贴边:露出来的身体太窄,挂到身体朝屏幕里的那一侧
-    const bx = isClinging() ? (action.side > 0 ? an.left - bw - 10 : an.right + 10) : an.x - bw / 2;
-    const by = isClinging() ? an.midY - bh / 2 : an.top - bh - 8;
+    const bx = isClinging() ? (action.side > 0 ? an.left - bw - 10 - ridersSide : an.right + 10 + ridersSide) : an.x - bw / 2;
+    const by = isClinging() ? an.midY - bh / 2 : petTop(an) - bh - 8;   // 头上趴着螃蟹时挂到它们上面
     setTransform(badge, `translate(${Math.round(Math.min(Wpx - bw - 8, Math.max(8, bx)))}px, ${Math.round(Math.min(Hpx - bh - 8, Math.max(8, by)))}px)`);
   } else if (badge.classList.contains('show')) {
     badge.classList.remove('show');   // 只去掉 show,保留竖排等样式,淡出时不会从竖条跳成横条
@@ -1561,8 +1580,7 @@ function frame() {
   if (bubbleKind) {
     const bw = bubble.offsetWidth, bh = bubble.offsetHeight, an = petAnchor(), px = an.x;
     const left = Math.round(Math.min(Wpx - bw - 8, Math.max(8, px - bw / 2)));
-    const lift = dotsEl.classList.contains('show') && !isClinging() ? dotsEl.offsetHeight + 8 : 0;   // 头顶有会话小螃蟹时,气泡让到它上面
-    const top = Math.round(Math.max(8, an.top - bh - lift - (bubbleKind === 'chat' ? 30 : bubbleKind === 'say' ? 18 : 14)));   // 心里话下面挂着两颗小方块,要多让一点
+    const top = Math.round(Math.max(8, petTop(an) - bh - (bubbleKind === 'chat' ? 30 : bubbleKind === 'say' ? 18 : 14)));   // 心里话下面挂着两颗小方块,要多让一点
     setTransform(bubble, `translate(${left}px, ${top}px)`);
     const tail = `${Math.min(bw - 18, Math.max(18, px - left))}px`;
     if (bubble.dataset.tail !== tail) { bubble.dataset.tail = tail; bubble.style.setProperty('--tail', tail); }

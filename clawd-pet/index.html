@@ -115,22 +115,20 @@
   #bubble .row i { font-style: normal; color: #8A8470; text-align: right; }
   #bubble .models { margin-top: 4px; color: #6B6556; }
   #bubble .foot { margin-top: 4px; color: #A39E90; }
-  /* 会话小螃蟹:血条胶囊里竖线后面,或者血条没亮时单独一个同样式的小胶囊 */
-  #dots { position: absolute; left: 0; top: 0; display: flex; align-items: center; opacity: 0; padding: 5px 6px;
-    background: #FFFCF6; border: 1px solid #E8DFD0; border-radius: 8px; box-shadow: 0 3px 10px rgba(60, 40, 20, .14);
-    pointer-events: none; transition: opacity .25s; }
-  #dots.show { opacity: 1; }
-  #badge .sep { width: 1px; height: 12px; background: #E8DFD0; }
-  #badge.vert .sep { width: 12px; height: 1px; }
-  .crabs, #dots { gap: 3px; } .crabs { display: flex; align-items: flex-end; }
-  #badge.vert .crabs, #dots.vert { flex-direction: column; align-items: center; }
-  svg.crab { display: block; shape-rendering: crispEdges; fill: currentColor; }
-  svg.crab.st-thinking { color: #C9C0B2; }
-  svg.crab.st-tool { color: #D97757; }
-  svg.crab.st-ask, svg.crab.st-waiting { color: #B8433F; animation: crabHop .6s steps(2, jump-none) infinite; }
-  svg.crab.st-done { color: #7FA383; }
-  svg.crab.st-error { color: #B8433F; }
-  @keyframes crabHop { 50% { transform: translateY(-2px); } }
+  /* 会话小螃蟹:不加框,直接趴在 Clawd 头顶 */
+  #riders { position: absolute; left: 0; top: 0; display: flex; gap: 3px; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity .25s;
+    transform-origin: 50% 100%; }   /* 以脚底中点为轴跟着 Clawd 转 */
+  #riders.show { opacity: 1; }
+  #riders b { font: 12px/12px "Ark Pixel", sans-serif; -webkit-font-smoothing: none; font-weight: normal; color: #8A8470; }
+  #riders .rider { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  #riders svg { display: block; shape-rendering: crispEdges; fill: currentColor; }
+  .rider.st-thinking { color: #C9C0B2; }
+  .rider.st-tool { color: #A5502F; animation: crabBob 1.2s steps(2, jump-none) infinite; }
+  .rider.st-ask, .rider.st-waiting { color: #B8433F; animation: crabHop .6s steps(2, jump-none) infinite; }
+  .rider.st-done { color: #7FA383; }
+  .rider.st-error { color: #B8433F; }
+  @keyframes crabHop { 50% { translate: 0 -2px; } }
+  @keyframes crabBob { 50% { translate: 0 -1px; } }
   /* 悬停时的会话详情 */
   #dotstip { position: absolute; left: 0; top: 0; display: none; padding: 6px 8px; background: #FFFCF6; border: 1px solid #E8DFD0;
     border-radius: 8px; box-shadow: 0 3px 10px rgba(60, 40, 20, .14); pointer-events: none;
@@ -174,7 +172,7 @@
 <canvas id="c"></canvas>
 <div id="bubble"></div>
 <div id="badge"></div>
-<div id="dots"></div>
+<div id="riders"></div>
 <div id="dotstip"></div>
 <script type="importmap">
 { "imports": {
