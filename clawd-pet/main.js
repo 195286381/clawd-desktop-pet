@@ -41,6 +41,9 @@ let petScale = Number(loadSettings().scale) || 1;
 // 血条:一直显示 / 鼠标悬停时显示 / 关闭
 const HP_MODES = [['一直显示', 'always'], ['鼠标悬停时显示', 'hover'], ['关闭', 'off']];
 let hpMode = HP_MODES.some(([, v]) => v === loadSettings().hpMode) ? loadSettings().hpMode : 'always';
+// 鼠标经过(还没停稳、点击会穿透)时 Clawd 变多透明:变半透明 / 稍微变淡 / 不变
+const FADES = [['变半透明', 'fade'], ['稍微变淡', 'light'], ['不变', 'none']];
+let hoverFade = FADES.some(([, v]) => v === loadSettings().hoverFade) ? loadSettings().hoverFade : 'fade';
 // Dock 图标:可以关掉,Clawd 照常在桌面上,菜单改从菜单栏图标打开
 let showDock = loadSettings().showDock !== false;
 function keepOnTop() {
@@ -65,13 +68,13 @@ let ccNotifyDone = st0.ccNotifyDone !== false, ccNotifyAsk = st0.ccNotifyAsk !==
 let powerSave = st0.powerSave === true, sound = st0.sound === true;   // 省电模式(帧率上限 30)、音效:默认都关
 function syncPrefs() {
   send('chat:' + chatLevel); send('break:' + breakMin); send('holiday:' + (holiday ? 'on' : 'off'));
-  send('power-save:' + (powerSave ? 'on' : 'off')); send('sound:' + (sound ? 'on' : 'off'));
+  send('power-save:' + (powerSave ? 'on' : 'off')); send('fade:' + hoverFade); send('sound:' + (sound ? 'on' : 'off'));
   send('cc-notify:' + (ccNotifyDone ? 1 : 0) + (ccNotifyAsk ? 1 : 0)); send('cc-hooks:' + (ccHooked() ? 'on' : 'off'));
 }
 function setPref(key, v) {
   ({ chatLevel: () => (chatLevel = v), breakMin: () => (breakMin = v), holiday: () => (holiday = v),
      ccNotifyDone: () => (ccNotifyDone = v), ccNotifyAsk: () => (ccNotifyAsk = v),
-     powerSave: () => (powerSave = v), sound: () => (sound = v) })[key]();
+     powerSave: () => (powerSave = v), sound: () => (sound = v), hoverFade: () => (hoverFade = v) })[key]();
   saveSetting(key, v); syncPrefs(); refreshMenus();
 }
 
@@ -258,6 +261,17 @@ function createWindow() {
   win.setIgnoreMouseEvents(true);
   loadPet();
   win.once('ready-to-show', () => win.showInactive());
+  // 渲染进程的报错记到 userData/clawd.log(只留最近 200KB),方便排查"卡住"之类的问题
+  win.webContents.on('console-message', (e, level, message) => {
+    const lv = e.level ?? level, msg = e.message ?? message;
+    if (lv !== 'error' && lv !== 3) return;
+    try {
+      const f = path.join(app.getPath('userData'), 'clawd.log');
+      if (fs.existsSync(f) && fs.statSync(f).size > 200e3) fs.renameSync(f, f + '.old');
+      fs.appendFileSync(f, `[${new Date().toISOString()}] ${msg}\n`);
+    } catch {}
+  });
+  win.webContents.on('render-process-gone', (_e, d) => { console.error('渲染进程退出', d.reason); if (d.reason !== 'clean-exit' && win && !win.isDestroyed()) loadPet(); });
   win.webContents.on('did-finish-load', () => {
     // 页面(重新)载入后,把菜单里的开关状态同步过去
     if (!wander) send('wander-off');
@@ -371,6 +385,7 @@ function menuTemplate({ forDock = false } = {}) {
     { label: t('外观'), submenu: [
       { label: t('大小'), submenu: SIZES.map(([name, v]) => ({ label: t(name), type: 'radio', checked: petScale === v, click: () => setScale(v) })) },
       { label: t('血条'), submenu: HP_MODES.map(([name, v]) => ({ label: t(name), type: 'radio', checked: hpMode === v, click: () => setHpMode(v) })) },
+      { label: t('鼠标经过时'), submenu: FADES.map(([name, v]) => ({ label: t(name), type: 'radio', checked: hoverFade === v, click: () => setPref('hoverFade', v) })) },
       { label: t('节日装扮'), type: 'checkbox', checked: holiday, click: (item) => setPref('holiday', item.checked) },
     ] },
     { label: t('设置'), submenu: settings },

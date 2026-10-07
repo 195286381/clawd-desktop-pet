@@ -162,5 +162,9 @@
  "等你回复": "waiting for you",
  "完成": "done",
  "出错了": "error",
- "跟随系统": "Follow system"
+ "跟随系统": "Follow system",
+ "鼠标经过时": "When the mouse passes over",
+ "变半透明": "Go see-through",
+ "稍微变淡": "Fade slightly",
+ "不变": "No change"
 }

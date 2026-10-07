@@ -12,7 +12,9 @@
     -webkit-user-select: none; user-select: none; }
   #c { position: absolute; left: 0; top: 0; will-change: transform; cursor: grab; }
   #c { transition: opacity .15s; }
-  #c.ghost { opacity: .3; }   /* 光标路过时变半透明,点击穿透 */
+  #c.ghost { opacity: .3; }   /* 光标路过时变半透明,点击穿透(菜单「外观 → 鼠标经过时」可调) */
+  #c.ghost[data-fade="light"] { opacity: .7; }
+  #c.ghost[data-fade="none"] { opacity: 1; }
   #c.dragging { cursor: grabbing; }
 
   /* 头顶血条:和气泡同一套米白卡片风格,格子和百分比装在同一个胶囊里;贴边时竖过来 */

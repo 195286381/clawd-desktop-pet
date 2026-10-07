@@ -804,6 +804,7 @@ window.pet?.onCommand(cmd => {
   if (cmd.startsWith('power:')) { onBattery = cmd === 'power:battery'; return; }
   if (cmd.startsWith('power-save:')) { powerSave = cmd === 'power-save:on'; return; }
   if (cmd.startsWith('sound:')) { soundOn = cmd === 'sound:on'; return; }
+  if (cmd.startsWith('fade:')) { canvas.dataset.fade = cmd.slice(5); return; }
   if (action.type === 'drag' || action.type === 'leave') return;
   if (isClinging() && ['jump', 'wave', 'dance', 'lean', 'walk', 'home'].includes(cmd)) stopCling();
   if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }
@@ -1033,18 +1034,48 @@ function targetFps() {
   return near ? cap : Math.min(cap, 30);
 }
 // 满帧时跟着屏幕刷新走;降帧时用定时器隔一段再要下一帧,中间整个渲染进程都能睡着(光跳过帧还是会被每秒唤醒 60 次)
+let lastFrameAt = 0, lastErr = '', framePending = false, frameGen = 0, backupTimer = 0;
+// 要下一帧:同一时间最多挂一个,免得出现两条循环。
+// 同时挂一个 100ms 的备用定时器:macOS 上透明窗口偶尔(比如屏幕休眠唤醒后)不再触发 requestAnimationFrame,
+// 这时由定时器顶上,不会卡死。谁先到算谁,另一个作废。
+function requestFrame() {
+  if (framePending) return;
+  framePending = true;
+  const g = ++frameGen;
+  const run = now => { if (g !== frameGen) return; frameGen++; framePending = false; clearTimeout(backupTimer); loop(now); };
+  requestAnimationFrame(run);
+  backupTimer = setTimeout(() => run(performance.now()), 100);
+}
 function loop(now) {
   if (!looping) return;
-  frame();
+  lastFrameAt = performance.now();
+  try {
+    frame();
+  } catch (e) {
+    // 某一帧出错也要继续排下一帧,不然 Clawd 会整个卡住(气泡、血条都停在原地)
+    const msg = String(e && e.stack || e);
+    if (msg !== lastErr) { lastErr = msg; console.error('Clawd 渲染出错', msg); }
+    try { renderer.render(scene, camera); } catch {}   // 后半帧被跳过了,至少把 Clawd 画出来
+  }
   if (!looping) return;   // frame() 里可能刚收起
-  const fps = targetFps();
-  if (fps >= 55) requestAnimationFrame(loop);
-  else loopTimer = setTimeout(() => { loopTimer = 0; requestAnimationFrame(loop); }, Math.max(0, 1000 / fps - (performance.now() - now) - 8));
+  schedule(now);
 }
-function startLoop() { if (looping) return; looping = true; requestAnimationFrame(loop); }
+function schedule(now) {
+  const fps = targetFps();
+  if (fps >= 55) requestFrame();
+  else loopTimer = setTimeout(() => { loopTimer = 0; requestFrame(); }, Math.max(0, 1000 / fps - (performance.now() - now) - 8));
+}
+// 看门狗:万一循环还是断了(超过 2 秒没出新帧),作废排着的帧,重新拉起来
+setInterval(() => {
+  if (!looping || performance.now() - lastFrameAt < 2000) return;
+  console.error('Clawd 主循环停了,重新启动');
+  frameGen++; framePending = false; clearTimeout(backupTimer); clearTimeout(loopTimer); loopTimer = 0;
+  requestFrame();
+}, 1000);
+function startLoop() { if (looping) return; looping = true; lastFrameAt = performance.now(); requestFrame(); }
 function stopLoop() { looping = false; clearTimeout(loopTimer); }
 // 有动静(光标靠近、点、拖、来了提醒)时马上回到满帧,不用等到下一个定时器
-function wake() { if (looping && loopTimer) { clearTimeout(loopTimer); loopTimer = 0; requestAnimationFrame(loop); } }
+function wake() { if (looping && loopTimer) { clearTimeout(loopTimer); loopTimer = 0; requestFrame(); } }
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 1 / 10);
