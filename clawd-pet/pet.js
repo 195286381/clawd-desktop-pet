@@ -435,9 +435,11 @@ function usageHtml(u) {
     html += '<div class="models">' + models.slice(0, 3)
       .map(([k, v]) => `${k} ${Math.round(v.cost / u.today.cost * 100)}%`).join(' · ') + '</div>';
   }
-  const limitNote = L ? '' : (u.limitsError ? ` · ${t('额度:{0}', t(LIMIT_ERR[u.limitsError] || u.limitsError))}` : ` · ${t('额度查询中…')}`);
+  const limitNote = L ? null : u.limitsError ? t('额度:{0}', t(LIMIT_ERR[u.limitsError] || u.limitsError)) : t('额度查询中…');
   html += ccSessionsHtml();
-  html += `<div class="foot">${t('花费按 API 价格估算')}${limitNote} · ${t('Clawd 现在{0}', t(MOOD_NAME[mood]))}</div>`;
+  // 每一节是一个不拆开的小块,太长时在「·」处换行,不会撑出气泡边框
+  const foot = [t('花费按 API 价格估算'), limitNote, t('Clawd 现在{0}', t(MOOD_NAME[mood]))].filter(Boolean);
+  html += `<div class="foot">${foot.map(x => `<span>${x}</span>`).join(' · ')}</div>`;
   return html;
 }
 function showUsage() {
