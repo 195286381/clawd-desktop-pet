@@ -1139,7 +1139,7 @@ window.pet?.onCommand(cmd => {
   if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }
   if (cmd === 'passthrough-off') { passthrough = false; return; }
   if (cmd === 'wander-on') { wander = true; return; }
-  if (cmd === 'wander-off') { wander = false; setAction({ type: 'rest', dur: 2 }); return; }
+  if (cmd === 'wander-off') { wander = false; if (!isClinging()) setAction({ type: 'rest', dur: 2 }); return; }   // 贴着墙就继续贴着,直接换动作会悬在半空
   if (cmd === 'home') { setAction({ type: 'walk', target: Wpx / S / 2 }); return; }
   if (cmd === 'walk') { setAction(pickWalk()); return; }
   if (cmd === 'cling') {
