@@ -162,5 +162,11 @@
  "等你回复": "waiting for you",
  "完成": "done",
  "出错了": "error",
- "跟随系统": "Follow system"
+ "跟随系统": "Follow system",
+ "鼠标经过时": "When the mouse passes over",
+ "变半透明": "Go see-through",
+ "稍微变淡": "Fade slightly",
+ "不变": "No change",
+ "头顶显示会话小螃蟹": "Show session crabs on Clawd's head",
+ "🙋 <b>{0}</b> 还在等你批准<br>已经等了 {1}": "🙋 <b>{0}</b> is still waiting for your approval<br>for {1} now"
 }

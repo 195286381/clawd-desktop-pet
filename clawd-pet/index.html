@@ -12,7 +12,9 @@
     -webkit-user-select: none; user-select: none; }
   #c { position: absolute; left: 0; top: 0; will-change: transform; cursor: grab; }
   #c { transition: opacity .15s; }
-  #c.ghost { opacity: .3; }   /* 光标路过时变半透明,点击穿透 */
+  #c.ghost { opacity: .3; }   /* 光标路过时变半透明,点击穿透(菜单「外观 → 鼠标经过时」可调) */
+  #c.ghost[data-fade="light"] { opacity: .7; }
+  #c.ghost[data-fade="none"] { opacity: 1; }
   #c.dragging { cursor: grabbing; }
 
   /* 头顶血条:和气泡同一套米白卡片风格,格子和百分比装在同一个胶囊里;贴边时竖过来 */
@@ -113,6 +115,29 @@
   #bubble .row i { font-style: normal; color: #8A8470; text-align: right; }
   #bubble .models { margin-top: 4px; color: #6B6556; }
   #bubble .foot { margin-top: 4px; color: #A39E90; }
+  /* 会话小螃蟹:不加框,直接趴在 Clawd 头顶 */
+  #riders { position: absolute; left: 0; top: 0; display: flex; gap: 3px; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity .25s;
+    transform-origin: 50% 100%; }   /* 以脚底中点为轴跟着 Clawd 转 */
+  #riders.show { opacity: 1; }
+  #riders b { font: 12px/12px "Ark Pixel", sans-serif; -webkit-font-smoothing: none; font-weight: normal; color: #8A8470; }
+  #riders .rider { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  #riders svg { display: block; shape-rendering: crispEdges; fill: currentColor; }
+  .rider.st-thinking { color: #C9C0B2; }
+  .rider.st-tool { color: #A5502F; animation: crabBob 1.2s steps(2, jump-none) infinite; }
+  .rider.st-ask, .rider.st-waiting { color: #B8433F; animation: crabHop .6s steps(2, jump-none) infinite; }
+  .rider.st-done { color: #7FA383; }
+  .rider.st-error { color: #B8433F; }
+  @keyframes crabHop { 50% { translate: 0 -2px; } }
+  @keyframes crabBob { 50% { translate: 0 -1px; } }
+  /* 悬停时的会话详情 */
+  #dotstip { position: absolute; left: 0; top: 0; display: none; padding: 6px 8px; background: #FFFCF6; border: 1px solid #E8DFD0;
+    border-radius: 8px; box-shadow: 0 3px 10px rgba(60, 40, 20, .14); pointer-events: none;
+    font: 12px/12px "Ark Pixel", -apple-system, "PingFang SC", sans-serif; -webkit-font-smoothing: none; white-space: nowrap; color: #5B5346; }
+  #dotstip.show { display: grid; grid-template-columns: auto auto auto; gap: 6px 10px; }
+  #dotstip > div { display: contents; }
+  #dotstip b { font-weight: normal; }
+  #dotstip i { font-style: normal; color: #A39E90; text-align: right; }
+  #dotstip .st-ask b, #dotstip .st-waiting b, #dotstip .st-error b { color: #B8433F; }
   #bubble .foot { white-space: normal; line-height: 16px; }
   #bubble .foot span { white-space: nowrap; }
   #bubble .quota { margin: 2px 0 6px; }
@@ -147,6 +172,8 @@
 <canvas id="c"></canvas>
 <div id="bubble"></div>
 <div id="badge"></div>
+<div id="riders"></div>
+<div id="dotstip"></div>
 <script type="importmap">
 { "imports": {
   "three": "./node_modules/three/build/three.module.js",
