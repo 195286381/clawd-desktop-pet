@@ -195,8 +195,6 @@ clawd/
 │   ├── locales/en.json        English UI strings (keyed by the original Chinese text)
 │   ├── fonts/                 pixel font (Ark Pixel Font 12px, Simplified Chinese, + OFL license)
 │   └── build/                 app icon (Blender render script + compositing script) and the menu bar icon script
-├── clawd.html                 web version of the 3D Clawd (open directly in a browser)
-├── claude_figure.*            the very first Blender figure (not Clawd's shape — kept as a keepsake)
 ├── README.md                  English README
 ├── README.zh-CN.md            Chinese README
 └── docs/                      images for the README (captured with CLAWD_DEMO=1 sample data)

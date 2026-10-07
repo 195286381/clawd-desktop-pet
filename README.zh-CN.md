@@ -196,8 +196,6 @@ clawd/
 │   ├── locales/en.json        英文界面文案(以中文原文为键)
 │   ├── fonts/                 像素字体(方舟像素字体 12px 简体中文版 + OFL 授权)
 │   └── build/                 应用图标(Blender 渲染脚本 + 合成脚本)、菜单栏图标生成脚本
-├── clawd.html                 网页版 3D Clawd(浏览器直接打开)
-├── claude_figure.*            最早的 Blender 人偶(造型不是 Clawd,留作纪念)
 ├── README.md                  英文说明
 ├── README.zh-CN.md            中文说明
 └── docs/                      README 用的图片（用 CLAWD_DEMO=1 的示例数据截取）
