@@ -350,6 +350,7 @@ function setBubbleHtml(html, type) {
   bubble.insertAdjacentHTML('afterbegin', PX_FRAME);
 }
 function say(html, secs, kind = 'say') {
+  if (bubbleKind === 'perm' && kind !== 'perm') return;   // 正在等你批准:别的话先不说,免得把按钮盖掉
   wake();
   setBubbleHtml(html, kind !== 'usage');   // 用量面板是数据,不逐字打
   bubble.className = 'show ' + kind;
@@ -358,7 +359,10 @@ function say(html, secs, kind = 'say') {
   bubbleUntil = nowSec() + secs;
   bubbleKind = kind;
 }
-function hideBubble() { bubble.classList.remove('show', 'pop'); bubbleKind = null; }
+function hideBubble(force) {
+  if (bubbleKind === 'perm' && !force) return;   // 批准按钮只在你表态 / 超时 / 收起时才收
+  bubble.classList.remove('show', 'pop'); bubbleKind = null;
+}
 // 把文字拆成一个个字,配合 CSS 逐字出现(保留 <b>、<br> 等标签)
 function typeIn(el) {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -636,7 +640,7 @@ window.pet?.onClaude?.(ev => {
   const to = (state) => { if (x.state !== state) x.since = now; x.state = state; };
   x.last = now;
   if (ev.project) x.project = ev.project;
-  if (ev.app) { x.app = ev.app; x.tty = ev.tty; }   // 会话开在哪个 App / 终端,点小螃蟹时跳过去
+  if (ev.app) { x.app = ev.app; x.tty = ev.tty; x.host = ev.host; }   // 会话开在哪个 App / 终端,点小螃蟹时跳过去
   ccSessions.set(sid, x);
   switch (ev.event) {
     case 'UserPromptSubmit': to('thinking'); x.started = now; x.since = now; x.tool = x.detail = ''; break;
@@ -736,6 +740,21 @@ function updateRiders() {
 }
 // 头顶最高处:身体 / 道具的顶边,头上趴着螃蟹时取螃蟹(连同「!」)的顶边。血条、气泡都挂在它上面
 const petTop = an => Math.min(an.top, ridersTop - 4);
+// 血条里的内容:格子 = 5 小时额度,小圆环 = 本周额度;nums 时两个百分比都写出来
+function usageHTML(L, vert, nums) {
+  const r = Math.max(0, Math.round(L.fiveHour ? L.fiveHour.remaining : 100));   // 5 小时窗口过期 = 已重置,满格
+  const hl = levelOf(r), cells = Math.min(10, Math.ceil(r / 10));
+  const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt, true)}` : hl >= 2 || nums ? `${r}%` : '';
+  const wk = L.sevenDay ? Math.max(0, Math.min(100, Math.round(L.sevenDay.remaining))) : null;
+  const pct = (v, cls = '') => vert ? `<b class="${cls}"><span>${v}</span><span>%</span></b>` : `<b class="${cls}">${v}%</b>`;
+  const html = '<div class="hp">' + Array.from({ length: 10 }, (_, i) => `<i${i < cells ? ' class="on"' : ''}></i>`).join('') + '</div>'
+    + (!text ? '' : vert ? pct(r) : `<b>${text}</b>`)
+    + (wk === null ? '' : `<svg class="ring lv${levelOf(wk)}" viewBox="0 0 16 16"><circle class="track" cx="8" cy="8" r="6"/>`
+      + `<circle class="arc" cx="8" cy="8" r="6" pathLength="100" stroke-dasharray="${wk} 100" transform="rotate(-90 8 8)"/></svg>`
+      + (nums ? pct(wk, `wk lv${levelOf(wk)}`) : ''));
+  return { html, hl };
+}
+let hpUsage = null, hpFromDots = false;   // 这一帧血条该显示的用量(没有就是 null);最近一次悬停是不是在小螃蟹上
 function updateDots() {   // 光标停在小螃蟹上时的会话详情
   dotsTargets = dotList.length ? [ridersEl] : [];
   if (!dotsTargets.length) { dotsHover = false; dotsTip.classList.remove('show'); return; }
@@ -743,7 +762,8 @@ function updateDots() {   // 光标停在小螃蟹上时的会话详情
   dotsTip.classList.toggle('show', dotsHover);
   if (!dotsHover) return;
   const now = Date.now();
-  const html = dotList.map(([, s]) => {
+  const u = hpUsage && usageHTML(hpUsage, false, true);
+  const html = (u ? `<section class="usage lv${u.hl}">${u.html}</section>` : '') + dotList.map(([, s]) => {
     const time = CC_BUSY.includes(s.state) ? fmtElapsed(now - s.started) : fmtElapsed(now - s.since);
     return `<div class="st-${s.state}"><span>${CC_ICON[s.state] || ''} ${esc(s.project || t('会话'))}</span><b>${esc(ccActivity(s, true))}</b><i>${time}</i></div>`;
   }).join('') + (dotList.some(([, s]) => s.app) ? `<p>${t('点小螃蟹跳到它的窗口')}</p>` : '');
@@ -751,12 +771,17 @@ function updateDots() {   // 光标停在小螃蟹上时的会话详情
   const rs = dotsTargets.map(e => e.getBoundingClientRect());
   const top = Math.min(...rs.map(r => r.top)), bottom = Math.max(...rs.map(r => r.bottom)), cx = rs[0].left + rs[0].width / 2;
   const tw = dotsTip.offsetWidth, th = dotsTip.offsetHeight;
-  const tx = Math.round(Math.min(Wpx - tw - 8, Math.max(8, cx - tw / 2)));
-  const ty = Math.round(top - th - 8 < 8 ? bottom + 8 : top - th - 8);
+  let tx = Math.round(Math.min(Wpx - tw - 8, Math.max(8, cx - tw / 2)));
+  let ty = Math.round(top - th - 8 < 8 ? bottom + 8 : top - th - 8);
+  if (isClinging()) {   // 贴边:螃蟹在身体朝屏幕里的那一侧,详情放到它们再往里
+    tx = Math.round(action.side > 0 ? Math.min(...rs.map(r => r.left)) - tw - 8 : Math.max(...rs.map(r => r.right)) + 8);
+    tx = Math.min(Wpx - tw - 8, Math.max(8, tx));
+    ty = Math.round(Math.min(Hpx - th - 8, Math.max(8, (top + bottom) / 2 - th / 2)));
+  }
   setTransform(dotsTip, `translate(${tx}px, ${ty}px)`);
 }
 
-// 点小螃蟹:跳到这个会话所在的窗口(iTerm / Terminal 精确到标签页,其他 App 切到最前面)
+// 点小螃蟹:跳到这个会话所在的窗口(iTerm / Terminal 精确到标签页,Claude App 精确到会话,其他 App 切到最前面)
 // 螃蟹很小,按离光标最近的那只算;在捕获阶段拦下来,不让 Clawd 本身当成被点了
 window.addEventListener('pointerdown', e => {
   if (!dotsHover) return;
@@ -767,9 +792,48 @@ window.addEventListener('pointerdown', e => {
   const i = els.indexOf(els.reduce((a, b) => (dist(b) < dist(a) ? b : a)));
   const s = dotList[i]?.[1];
   if (!s) return;
-  if (s.app) { sfx('pop'); window.pet?.focusSession({ app: s.app, tty: s.tty }); }
+  if (s.app) { sfx('pop'); window.pet?.focusSession({ app: s.app, tty: s.tty, host: s.host }); }
   else say(t('这个会话开得早，还不知道它在哪个窗口<br>重新打开会话后就能跳过去了'), 4);   // 旧版 hooks 连的会话不带 App 信息
 }, true);
+
+// ---------------- 在 Clawd 上批准权限 ----------------
+// Claude 要你批准、而它所在的终端不在最前面时,Clawd 弹出「允许 / 拒绝 / 去终端处理」。一次只问一个,其他的排队;
+// 60 秒没点(主进程计时)就交回终端照常弹框
+const permQueue = [];   // { id, project, tool, preview, app, tty, host }
+let permShown = null, permHover = false;
+function showPerm() {
+  if (permShown || !permQueue.length || paused) return;
+  const p = permShown = permQueue[0];
+  if (bubbleKind === 'usage') hideBubble();
+  say(t('🙋 <b>{0}</b> 要用 <b>{1}</b>', esc(p.project || t('会话')), esc(p.tool)) + (p.preview ? `<code>${esc(p.preview)}</code>` : '')
+    + `<div class="btns"><button data-d="allow">${t('允许')}</button><button data-d="deny">${t('拒绝')}</button><button data-d="pass">${t('去终端处理')}</button></div>`
+    + (permQueue.length > 1 ? `<i class="more">${t('后面还有 {0} 个', permQueue.length - 1)}</i>` : ''), 3600, 'perm');
+  bubble.classList.add('say');   // 外观和对你说话的气泡一样
+  sfx('ask');
+  if (!isClinging() && !['drag', 'leave'].includes(action.type)) setAction({ type: 'wave', dur: 2.4 });
+}
+function dropPerm(id) {
+  const i = permQueue.findIndex(p => p.id === id);
+  if (i < 0) return;
+  permQueue.splice(i, 1);
+  if (permShown?.id === id) { permShown = null; permHover = false; hideBubble(true); }
+  showPerm();
+}
+window.pet?.onPerm?.(p => { permQueue.push(p); showPerm(); if (permShown && permShown !== p) showPermCount(); });
+function showPermCount() {   // 排队的数量变了:更新「后面还有 N 个」
+  const el = bubble.querySelector('.more'), n = permQueue.length - 1;
+  if (el) el.textContent = t('后面还有 {0} 个', n);
+  else if (n > 0) bubble.insertAdjacentHTML('beforeend', `<i class="more">${t('后面还有 {0} 个', n)}</i>`);
+}
+bubble.addEventListener('click', e => {
+  const b = e.target.closest('button[data-d]');
+  if (!b || !permShown) return;
+  const p = permShown, d = b.dataset.d;
+  window.pet?.permDecision(p.id, d);
+  sfx(d === 'allow' ? 'pop' : 'poke');
+  if (d === 'pass' && p.app) window.pet?.focusSession({ app: p.app, tty: p.tty, host: p.host });   // 去终端处理:顺便跳过去
+  dropPerm(p.id);
+});
 
 // ---------------- 你离开时的小结 ----------------
 // 5 分钟没碰键盘鼠标:Clawd 去睡觉,记下这期间哪些会话做完 / 出错;一回来就醒,告诉你错过了什么
@@ -870,7 +934,7 @@ let action = { type: 'rest', t: 0, dur: 1.5 };
 const rand = (a, b) => a + Math.random() * (b - a);
 
 function pickAction() {
-  if (interactive) return { type: 'rest', dur: 1 };   // 光标停在它身上时就乖乖待着,方便点
+  if (interactive || permShown) return { type: 'rest', dur: 1 };   // 光标停在它身上 / 等你点批准按钮:乖乖待着,方便点
   if (!wander) return { type: 'rest', dur: 3 };
   const r = Math.random();
   if (mood === 4 || userAway) return { type: 'sleep' };     // 额度用完 / 你不在电脑前:睡觉
@@ -908,6 +972,8 @@ window.pet?.onCommand(cmd => {
   wake();
   if (cmd === 'minimize') {
     if (press) { press = null; canvas.classList.remove('dragging'); }
+    for (const p of permQueue.splice(0)) window.pet?.permDecision(p.id, 'pass');   // 收起了就没法点:全部交回终端
+    permShown = null; hideBubble(true);
     setAction({ type: 'leave' });
     hideBubble();
     return;
@@ -944,6 +1010,7 @@ window.pet?.onCommand(cmd => {
     return;
   }
   if (cmd === 'back') { userAway = false; welcomeBack(); return; }
+  if (cmd.startsWith('perm-cancel:')) { dropPerm(Number(cmd.slice(12))); return; }
   if (action.type === 'drag' || action.type === 'leave') return;
   if (isClinging() && ['jump', 'wave', 'dance', 'lean', 'walk', 'home'].includes(cmd)) stopCling();
   if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }
@@ -998,7 +1065,7 @@ function hitTest(px, py) {
 //    在它身上停留 HOVER_INTENT 秒才变实、可以点和拖,同时停下脚步看着你。
 // 2. 光标在它附近忙活一阵(说明你在那块区域干活):它自己走开,让出地方。
 const HOVER_INTENT = 0.1, SHY_AFTER = 1.2, SHY_COOLDOWN = 6;
-let hoverSince = 0, interactive = false, passthrough = false;
+let hoverSince = 0, permSince = 0, interactive = false, passthrough = false;
 let nearSince = 0, lastShy = -99;
 window.pet?.onCursor(p => {
   const now = nowSec();
@@ -1015,10 +1082,15 @@ window.pet?.onCursor(p => {
     if (dotsHover && !was) dotsSince = now;
     if (dotsHover && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }   // 在看详情:别走开
   } else dotsHover = false;
+  if (permShown) {   // 光标在批准气泡上:变成可点,Clawd 也别走开
+    const r = bubble.getBoundingClientRect(), was = permHover;
+    permHover = p.x > r.left && p.x < r.right && p.y > r.top && p.y < r.bottom;
+    if (permHover && !was) permSince = now;
+  } else permHover = false;
   if (onPet && !hovering) hoverSince = now;
   hovering = onPet;
   // 光标停在小螃蟹上也一样变成可点(点一下跳到会话窗口)
-  const want = action.type === 'drag' || (!passthrough && ((onPet && now - hoverSince >= HOVER_INTENT) || (dotsHover && now - dotsSince >= HOVER_INTENT)));
+  const want = action.type === 'drag' || (!passthrough && ((onPet && now - hoverSince >= HOVER_INTENT) || (dotsHover && now - dotsSince >= HOVER_INTENT) || (permHover && now - permSince >= HOVER_INTENT)));
   if (want !== interactive) {
     interactive = want;
     window.pet.setIgnore(!want);
@@ -1027,7 +1099,7 @@ window.pet?.onCursor(p => {
   canvas.classList.toggle('ghost', onPet && !interactive && action.type !== 'drag');
 
   const px = st.x * S, groundY = Hpx - st.y * S;
-  const near = !onPet && !dotsHover && st.y < 0.5
+  const near = !onPet && !dotsHover && !permHover && st.y < 0.5
     && Math.abs(p.x - px) < BW * S / 2 + 120
     && p.y > groundY - (LEG_L + BH) * S - 140 && p.y < groundY + 40;
   if (!near) nearSince = 0;
@@ -1609,26 +1681,14 @@ function frame() {
 
   // ---- 10. 头顶血条:格子 = 5 小时额度,旁边的小圆环 = 本周额度。有额度数据就常驻(气泡开着时让位) ----
   const L = usage && usage.limits;
-  if (hovering || dotsHover) hpHoverUntil = t + 1.5;   // 悬停模式:移开后再停 1.5 秒(在看小螃蟹详情时也别收起)
+  if (hovering || dotsHover) { hpHoverUntil = t + 1.5; hpFromDots = dotsHover; }   // 悬停模式:移开后再停 1.5 秒(在看小螃蟹详情时也别收起)
   updateRiders();
   const hpOn = hpMode === 'always' || (hpMode === 'hover' && t < hpHoverUntil);
-  if (hpOn && L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused) {
-    const r = Math.max(0, Math.round(L.fiveHour ? L.fiveHour.remaining : 100));   // 5 小时窗口过期 = 已重置,满格
-    const hl = levelOf(r), cells = Math.min(10, Math.ceil(r / 10));
+  hpUsage = hpOn && L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused ? L : null;
+  if (hpUsage && !(dotList.length && (dotsHover || (hpFromDots && t < hpHoverUntil)))) {   // 在看小螃蟹详情时,用量并进详情框里,不单独显示(移开后也别再单独冒出来)
     const vert = isClinging();
-    const nums = t < hpHoverUntil;   // 鼠标悬停时(移开后 1.5 秒内)把两个百分比都显示出来
-    const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt, true)}` : hl >= 2 || nums ? `${r}%` : '';
-    const wk = L.sevenDay ? Math.max(0, Math.min(100, Math.round(L.sevenDay.remaining))) : null;
-    const pct = (v, cls = '') => vert ? `<b class="${cls}"><span>${v}</span><span>%</span></b>` : `<b class="${cls}">${v}%</b>`;
-    const key = `${hl}|${cells}|${text}|${vert}|${wk}|${nums}`;
-    if (badge.dataset.key !== key) {
-      badge.dataset.key = key;
-      badge.innerHTML = '<div class="hp">' + Array.from({ length: 10 }, (_, i) => `<i${i < cells ? ' class="on"' : ''}></i>`).join('') + '</div>'
-        + (!text ? '' : vert ? pct(r) : `<b>${text}</b>`)
-        + (wk === null ? '' : `<svg class="ring lv${levelOf(wk)}" viewBox="0 0 16 16"><circle class="track" cx="8" cy="8" r="6"/>`
-          + `<circle class="arc" cx="8" cy="8" r="6" pathLength="100" stroke-dasharray="${wk} 100" transform="rotate(-90 8 8)"/></svg>`
-          + (nums ? pct(wk, `wk lv${levelOf(wk)}`) : ''));
-    }
+    const { html, hl } = usageHTML(L, vert, t < hpHoverUntil);   // 鼠标悬停时(移开后 1.5 秒内)把两个百分比都显示出来
+    if (badge.dataset.key !== html) { badge.dataset.key = html; badge.innerHTML = html; }
     const cls = 'show lv' + hl + (vert ? ' vert' : '');
     if (badge.className !== cls) badge.className = cls;
     const bw = badge.offsetWidth, bh = badge.offsetHeight, an = petAnchor();
