@@ -6,6 +6,7 @@ const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, dialog, po
 const path = require('path');
 const os = require('os');
 const http = require('http');
+const { execFile } = require('child_process');
 const { UsageTracker, fetchLimits } = require('./usage');
 
 app.setName('Clawd');
@@ -86,7 +87,8 @@ function setPref(key, v) {
 const HOOK_PORT = (!app.isPackaged && Number(process.env.CLAWD_HOOK_PORT)) || 47615;   // 开发自测可换端口,避免和正在运行的 Clawd 冲突
 const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'SessionEnd'];
 const HOOK_MARK = 'clawd-hook';
-const HOOK_CMD = `curl -s -m 2 -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:${HOOK_PORT}/hook >/dev/null 2>&1 || true # ${HOOK_MARK}`;
+// 顺带告诉 Clawd 这个会话开在哪个 App 里(启动它的 App 的 bundle id)和哪个终端(tty),点小螃蟹时好跳过去
+const HOOK_CMD = `curl -s -m 2 -X POST -H 'Content-Type: application/json' -H "X-Clawd-App: $__CFBundleIdentifier" -H "X-Clawd-Tty: $(ps -o tty= -p $PPID)" --data-binary @- http://127.0.0.1:${HOOK_PORT}/hook >/dev/null 2>&1 || true # ${HOOK_MARK}`;
 // 开发自测可以用 CLAWD_CC_SETTINGS 指向一个临时文件,避免动到真正的配置
 const ccSettingsFile = () => (!app.isPackaged && process.env.CLAWD_CC_SETTINGS) || path.join(os.homedir(), '.claude', 'settings.json');
 function readCC() {
@@ -99,6 +101,11 @@ function ccHookEvents() {   // 已经装了 Clawd hook 的事件
   catch { return []; }
 }
 const ccHooked = () => ccHookEvents().length > 0;
+// 旧版 hook 命令不带 App / tty(点小螃蟹没法跳转),启动时换成新的
+function ccHooksStale() {
+  try { const h = readCC().hooks || {}; return HOOK_EVENTS.some(ev => (h[ev] || []).some(g => (g.hooks || []).some(x => isClawdHook(x) && !x.command.includes('X-Clawd-App')))); }
+  catch { return false; }
+}
 // 只增删 Clawd 自己的那几条,别的 hooks 原样保留;改之前先备份
 function setCCHooks(on) {
   const file = ccSettingsFile();
@@ -154,7 +161,9 @@ http.createServer((req, res) => {
   req.on('end', () => {
     res.end('ok');
     let d; try { d = JSON.parse(body); } catch { return; }
+    const appId = String(req.headers['x-clawd-app'] || '').trim(), tty = String(req.headers['x-clawd-tty'] || '').trim();
     if (win && !win.isDestroyed()) win.webContents.send('cc', {
+      app: /^[\w.-]+$/.test(appId) ? appId : '', tty: /^ttys\d+$/.test(tty) ? tty : '',
       event: String(d.hook_event_name || ''), session: String(d.session_id || ''),
       project: d.cwd ? path.basename(String(d.cwd)) : '', message: String(d.message || ''), at: Date.now(),
       ntype: String(d.notification_type || ''),
@@ -320,6 +329,46 @@ function minimize() {
   send('minimize');
   refreshMenus();
 }
+// 点会话小螃蟹:跳到这个会话所在的窗口。iTerm / Terminal 按 tty 选中具体的标签页,其他 App(VS Code、Claude App 等)切到最前面
+const TAB_SCRIPTS = {
+  'com.googlecode.iterm2': tty => `tell application id "com.googlecode.iterm2"
+  repeat with w in windows
+    repeat with tb in tabs of w
+      repeat with s in sessions of tb
+        if tty of s is "${tty}" then
+          select w
+          select tb
+          select s
+          activate
+          return
+        end if
+      end repeat
+    end repeat
+  end repeat
+end tell
+error "not found"`,
+  'com.apple.Terminal': tty => `tell application id "com.apple.Terminal"
+  repeat with w in windows
+    repeat with tb in tabs of w
+      if tty of tb is "${tty}" then
+        set selected of tb to true
+        set index of w to 1
+        activate
+        return
+      end if
+    end repeat
+  end repeat
+end tell
+error "not found"`,
+};
+ipcMain.on('focus-session', (_e, s) => {
+  const appId = String(s?.app || ''), tty = String(s?.tty || '');
+  if (!/^[\w.-]+$/.test(appId)) return;
+  const open = () => execFile('open', ['-b', appId], err => err && console.error('切换到会话窗口失败', appId, err.message));
+  const script = /^ttys\d+$/.test(tty) && TAB_SCRIPTS[appId];
+  if (!script) return open();
+  execFile('osascript', ['-e', script('/dev/' + tty)], err => { if (err) open(); });   // 没找到标签页 / 没给自动化权限:至少把 App 切过来
+});
 ipcMain.on('clinging', (_e, v) => { clinging = !!v; refreshMenus(); });
 ipcMain.on('hidden-done', () => { if (hidden && win) win.hide(); });
 
@@ -415,7 +464,7 @@ function createTray() {
 
 app.whenReady().then(() => {
   // 之前连过 Claude Code、但 hooks 是旧版(少几个事件):按用户原来的选择补齐
-  try { const evs = ccHookEvents(); if (evs.length && evs.length < HOOK_EVENTS.length) setCCHooks(true); } catch (e) { console.error('升级 Claude Code hooks 失败', e.message); }
+  try { const evs = ccHookEvents(); if (evs.length && (evs.length < HOOK_EVENTS.length || ccHooksStale())) setCCHooks(true); } catch (e) { console.error('升级 Claude Code hooks 失败', e.message); }
 
   if (process.platform === 'darwin' && app.dock) {
     if (showDock) app.dock.show(); else app.dock.hide();
@@ -445,6 +494,15 @@ app.whenReady().then(() => {
   // 插拔电源:用电池时渲染进程把帧率上限降到 30
   powerMonitor.on('on-battery', () => send('power:battery'));
   powerMonitor.on('on-ac', () => send('power:ac'));
+
+  // 你离开电脑(5 分钟没碰键盘鼠标):Clawd 去睡觉;一回来就醒,告诉你这期间 Claude 那边发生了什么
+  const AWAY_AFTER = (!app.isPackaged && Number(process.env.CLAWD_AWAY_AFTER)) || 300;   // 秒;开发自测可以调短
+  let away = false;
+  setInterval(() => {
+    const idle = powerMonitor.getSystemIdleTime();
+    if (!away && idle >= AWAY_AFTER) { away = true; send('away'); }
+    else if (away && idle < 3) { away = false; send('back'); }
+  }, 2000);
 });
 
 // 点 Dock 图标:收起时放出来;已经在外面就跳一下打个招呼

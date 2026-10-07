@@ -636,6 +636,7 @@ window.pet?.onClaude?.(ev => {
   const to = (state) => { if (x.state !== state) x.since = now; x.state = state; };
   x.last = now;
   if (ev.project) x.project = ev.project;
+  if (ev.app) { x.app = ev.app; x.tty = ev.tty; }   // 会话开在哪个 App / 终端,点小螃蟹时跳过去
   ccSessions.set(sid, x);
   switch (ev.event) {
     case 'UserPromptSubmit': to('thinking'); x.started = now; x.since = now; x.tool = x.detail = ''; break;
@@ -650,12 +651,14 @@ window.pet?.onClaude?.(ev => {
     case 'Stop': {
       const took = now - x.started;
       to('done');
+      if (userAway) awayLog.set(sid, 'done');
       // 很快就答完的不打扰,干了一会儿(≥ 15 秒)的才报告
       if (ccNotify.done && took >= 15e3) { sfx('done'); flashFace('happy', 2.5); ccAlert(t('Claude 做完啦 ✅') + ccProject(ev), 6, true); }
       break;
     }
     case 'StopFailure':
       to('error');
+      if (userAway) awayLog.set(sid, 'error');
       if (ccNotify.done) { sfx('error'); flashFace('cry', 2.5); ccAlert(t('⚠️ Claude 出错停下了') + ccProject(ev), 7); }
       break;
     case 'Notification': {
@@ -692,7 +695,7 @@ const crabSvg = state => {
   return `<i class="rider st-${state}">${state === 'ask' || state === 'waiting' ? BANG : ''}${crab}</i>`;   // 等你的那只头顶一个「!」
 };
 const dotsTip = document.getElementById('dotstip'), ridersEl = document.getElementById('riders');
-let dotsHover = false, dotList = [], dotsTargets = [], ridersTop = Infinity, ridersSide = 0, crabsOn = true;   // crabsOn:菜单里可以关掉
+let dotsHover = false, dotsSince = 0, dotList = [], dotsTargets = [], ridersTop = Infinity, ridersSide = 0, crabsOn = true;   // crabsOn:菜单里可以关掉
 function dotSessions() {   // 要显示的会话:干活 / 等你的,加上刚做完或出错不到 1 分钟的;等你的排前面
   ccPurge();
   const now = Date.now();
@@ -743,7 +746,7 @@ function updateDots() {   // 光标停在小螃蟹上时的会话详情
   const html = dotList.map(([, s]) => {
     const time = CC_BUSY.includes(s.state) ? fmtElapsed(now - s.started) : fmtElapsed(now - s.since);
     return `<div class="st-${s.state}"><span>${CC_ICON[s.state] || ''} ${esc(s.project || t('会话'))}</span><b>${esc(ccActivity(s, true))}</b><i>${time}</i></div>`;
-  }).join('');
+  }).join('') + (dotList.some(([, s]) => s.app) ? `<p>${t('点小螃蟹跳到它的窗口')}</p>` : '');
   if (dotsTip.dataset.html !== html) { dotsTip.dataset.html = html; dotsTip.innerHTML = html; }
   const rs = dotsTargets.map(e => e.getBoundingClientRect());
   const top = Math.min(...rs.map(r => r.top)), bottom = Math.max(...rs.map(r => r.bottom)), cx = rs[0].left + rs[0].width / 2;
@@ -751,6 +754,42 @@ function updateDots() {   // 光标停在小螃蟹上时的会话详情
   const tx = Math.round(Math.min(Wpx - tw - 8, Math.max(8, cx - tw / 2)));
   const ty = Math.round(top - th - 8 < 8 ? bottom + 8 : top - th - 8);
   setTransform(dotsTip, `translate(${tx}px, ${ty}px)`);
+}
+
+// 点小螃蟹:跳到这个会话所在的窗口(iTerm / Terminal 精确到标签页,其他 App 切到最前面)
+// 螃蟹很小,按离光标最近的那只算;在捕获阶段拦下来,不让 Clawd 本身当成被点了
+window.addEventListener('pointerdown', e => {
+  if (!dotsHover) return;
+  e.stopPropagation(); e.preventDefault();
+  const dist = el => { const r = el.getBoundingClientRect(); return Math.hypot(e.clientX - (r.left + r.right) / 2, e.clientY - (r.top + r.bottom) / 2); };
+  const els = [...ridersEl.querySelectorAll('.rider')];
+  if (!els.length) return;
+  const i = els.indexOf(els.reduce((a, b) => (dist(b) < dist(a) ? b : a)));
+  const s = dotList[i]?.[1];
+  if (!s) return;
+  if (s.app) { sfx('pop'); window.pet?.focusSession({ app: s.app, tty: s.tty }); }
+  else say(t('这个会话开得早，还不知道它在哪个窗口<br>重新打开会话后就能跳过去了'), 4);   // 旧版 hooks 连的会话不带 App 信息
+}, true);
+
+// ---------------- 你离开时的小结 ----------------
+// 5 分钟没碰键盘鼠标:Clawd 去睡觉,记下这期间哪些会话做完 / 出错;一回来就醒,告诉你错过了什么
+let userAway = false;
+const awayLog = new Map();   // session → 'done' | 'error'
+function welcomeBack() {
+  if (paused) return;
+  const now = Date.now(), asks = [], others = [];
+  for (const [sid, x] of ccSessions) {
+    const name = esc(x.project || t('会话'));
+    if (x.state === 'ask') asks.push(t('🙋 <b>{0}</b> 等你批准，已经等了 {1}', name, fmtMin(Math.max(1, Math.round((now - x.since) / 60e3)))));
+    else if (awayLog.get(sid) === 'error') others.unshift(t('⚠️ <b>{0}</b> 出错停下了', name));
+    else if (awayLog.get(sid) === 'done') others.push(t('✅ <b>{0}</b> 做完了', name));
+  }
+  awayLog.clear();
+  const lines = [...asks, ...others];
+  if (!lines.length) { if (action.type === 'sleep' && mood < 4) setAction({ type: 'wave', dur: 1.6 }); return; }   // 没什么事:醒来挥挥手
+  const shown = lines.length > 4 ? [...lines.slice(0, 3), t('…还有 {0} 个', lines.length - 3)] : lines;
+  sfx(asks.length ? 'ask' : 'chime');
+  ccAlert(t('你不在的时候：') + '<br>' + shown.join('<br>'), 10);
 }
 
 // ---------------- 等太久再催一下 ----------------
@@ -834,7 +873,7 @@ function pickAction() {
   if (interactive) return { type: 'rest', dur: 1 };   // 光标停在它身上时就乖乖待着,方便点
   if (!wander) return { type: 'rest', dur: 3 };
   const r = Math.random();
-  if (mood === 4) return { type: 'sleep' };                 // 额度用完:一直睡
+  if (mood === 4 || userAway) return { type: 'sleep' };     // 额度用完 / 你不在电脑前:睡觉
   if (ccHooks && ccWorking() && r < 0.65) return { type: 'rest', dur: rand(5, 10) };   // Claude 在干活:多抱着电脑待着
   if (mood === 3) {
     // 快没电了:很少走动,大多趴着
@@ -899,6 +938,12 @@ window.pet?.onCommand(cmd => {
   if (cmd.startsWith('power-save:')) { powerSave = cmd === 'power-save:on'; return; }
   if (cmd.startsWith('sound:')) { soundOn = cmd === 'sound:on'; return; }
   if (cmd.startsWith('fade:')) { canvas.dataset.fade = cmd.slice(5); return; }
+  if (cmd === 'away') {
+    userAway = true; awayLog.clear();
+    if (!paused && !isClinging() && !['drag', 'leave', 'fall'].includes(action.type)) setAction({ type: 'sleep' });
+    return;
+  }
+  if (cmd === 'back') { userAway = false; welcomeBack(); return; }
   if (action.type === 'drag' || action.type === 'leave') return;
   if (isClinging() && ['jump', 'wave', 'dance', 'lean', 'walk', 'home'].includes(cmd)) stopCling();
   if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }
@@ -965,12 +1010,15 @@ window.pet?.onCursor(p => {
 
   const onPet = hitTest(p.x, p.y);
   if (dotsTargets.length) {   // 光标在会话小螃蟹或「!」上(多留 6px 余量):显示每个会话的详情
+    const was = dotsHover;
     dotsHover = dotsTargets.some(el => { const r = el.getBoundingClientRect(); return p.x > r.left - 6 && p.x < r.right + 6 && p.y > r.top - 6 && p.y < r.bottom + 6; });
+    if (dotsHover && !was) dotsSince = now;
     if (dotsHover && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }   // 在看详情:别走开
   } else dotsHover = false;
   if (onPet && !hovering) hoverSince = now;
   hovering = onPet;
-  const want = action.type === 'drag' || (!passthrough && onPet && now - hoverSince >= HOVER_INTENT);
+  // 光标停在小螃蟹上也一样变成可点(点一下跳到会话窗口)
+  const want = action.type === 'drag' || (!passthrough && ((onPet && now - hoverSince >= HOVER_INTENT) || (dotsHover && now - dotsSince >= HOVER_INTENT)));
   if (want !== interactive) {
     interactive = want;
     window.pet.setIgnore(!want);
@@ -1329,12 +1377,12 @@ function frame() {
   }
 
   else if (a.type === 'sleep') {
-    // 额度用完:趴着睡,直到额度恢复
+    // 额度用完 / 你离开电脑:趴着睡,直到额度恢复 / 你回来
     by = -LEG_L * 0.55; breathY = Math.sin(t * 0.9) * 0.03; breathQ = 0;
     squash = 0.94; eyeOpen = 0.06; armRot = [-0.32, -0.32]; look = 0;
     if (!a.nextZ) a.nextZ = 1.5;
     if (p > a.nextZ) { a.nextZ = p + 14; if (bubbleKind === null) say('Zzz…', 3, 'chat'); }
-    if (mood < 4 && p > 1) finish();
+    if (mood < 4 && !userAway && p > 1) finish();
   }
 
   else if (a.type === 'leave') {
@@ -1519,7 +1567,8 @@ function frame() {
     else if (a.type === 'rest' && mood < 3 && coding && (ccHooks || Math.random() < 0.55)) a.prop = 'laptop';   // 连上 hooks 后:Claude 在干活就一定抱着电脑
     else if (a.type === 'rest' && mood < 3 && h >= 6 && h < 11 && Math.random() < 0.4) a.prop = 'coffee';
   }
-  const want = propOverride && t < propOverrideUntil ? propOverride : a.prop;
+  let want = propOverride && t < propOverrideUntil ? propOverride : a.prop;
+  if (dotList.length && HAT_PROPS.includes(want)) want = null;   // 头顶趴着小螃蟹:不戴帽子,免得压住它们
   if (want !== curProp) { curProp = want; setProp(want); }
   const hol = holidayOn ? holidayForce || holidayToday() : null;
   const wantHol = hol && !(HOLIDAY[hol] && hol !== 'scarf' && HAT_PROPS.includes(curProp)) && !isClinging() ? hol : null;
