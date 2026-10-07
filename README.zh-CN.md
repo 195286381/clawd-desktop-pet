@@ -39,7 +39,20 @@
 
 ## 快速开始
 
-需要 macOS（Apple 芯片）、[Node.js](https://nodejs.org)，以及已登录的 [Claude Code](https://code.claude.com) 命令行（用于查询额度）。
+需要 macOS（Apple 芯片），以及已登录的 [Claude Code](https://code.claude.com) 命令行（用于查询额度）。
+
+### 下载安装
+
+1. 从 [最新 Release](https://github.com/195286381/clawd-pet/releases/latest) 下载 `Clawd-<版本号>-macos-arm64.zip`，解压后把 `Clawd.app` 拖进「应用程序」
+2. App 没有经过苹果公证，macOS 可能提示「已损坏」或「无法打开」。在终端里运行一次：
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Clawd.app
+   ```
+3. 打开 Clawd
+
+### 从源码构建
+
+另外需要 [Node.js](https://nodejs.org)。
 
 ```bash
 git clone https://github.com/195286381/clawd-pet.git
@@ -49,15 +62,17 @@ npm run package && ditto dist/Clawd-darwin-arm64/Clawd.app /Applications/Clawd.a
 open /Applications/Clawd.app
 ```
 
-然后在 Clawd 的菜单里（右键菜单栏图标）：
+> 自己打包的 App 同样没有签名。在打包它的那台 Mac 上直接用没问题；拷到别的 Mac 上时，第一次需要右键选「打开」。
+
+不想装、只想试试？在 `clawd-pet/` 里运行 `npm start` 就行。
+
+### 初始设置
+
+在 Clawd 的菜单里（右键菜单栏图标）：
 
 1. **Claude Code → 连接 Claude Code（任务提醒）** —— 之后新开的会话就有小螃蟹、提醒和反应了
 2. **设置 → 开机自动启动** —— 让 Clawd 一直在
 3. 可选：**Claude Code → 在 Clawd 上批准权限**
-
-> App 没有签名。在打包它的那台 Mac 上直接用没问题；拷到别的 Mac 上时，第一次需要右键选「打开」。
-
-不想装、只想试试？在 `clawd-pet/` 里运行 `npm start` 就行。
 
 > **界面语言：** 支持简体中文和英文，默认跟随系统语言，菜单 **语言 / Language** 里随时切换。
 
@@ -204,7 +219,7 @@ Claude 要用工具、需要你批准，而那个会话的窗口不在最前面�
 - 动画万一卡住，2 秒左右会自己恢复；页面崩溃会自动重新载入
 - 报错记在 `~/Library/Application Support/Clawd/clawd.log`（只保留最近约 200 KB），反馈问题时附上这个文件
 - 还是不对劲，从菜单栏图标退出再重新打开 Clawd
-- 更新时先在菜单里退出 Clawd，再重新运行「快速开始」里 `npm run package && ditto …` 那一行
+- 更新时先在菜单里退出 Clawd，再下载新版本、重复「下载安装」的步骤（自己从源码构建的，重新运行 `npm run package && ditto …` 那一行）
 
 </details>
 

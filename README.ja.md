@@ -39,7 +39,20 @@ Claude Code のセッションをいくつか走らせて別の作業に移っ�
 
 ## クイックスタート
 
-Apple シリコン搭載の macOS、[Node.js](https://nodejs.org)、そして [Claude Code](https://code.claude.com) CLI（サインイン済み —— クォータ確認に使います）が必要です。
+Apple シリコン搭載の macOS と、[Claude Code](https://code.claude.com) CLI（サインイン済み —— クォータ確認に使います）が必要です。
+
+### ダウンロード
+
+1. [最新リリース](https://github.com/195286381/clawd-pet/releases/latest) から `Clawd-<バージョン>-macos-arm64.zip` をダウンロードして解凍し、`Clawd.app` を**アプリケーション**フォルダに移動します
+2. アプリは Apple の公証を受けていないため、macOS に「壊れている」「開けません」と表示されることがあります。ターミナルで一度だけ次を実行してください：
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Clawd.app
+   ```
+3. Clawd を開きます
+
+### ソースからビルド
+
+[Node.js](https://nodejs.org) も必要です。
 
 ```bash
 git clone https://github.com/195286381/clawd-pet.git
@@ -49,15 +62,17 @@ npm run package && ditto dist/Clawd-darwin-arm64/Clawd.app /Applications/Clawd.a
 open /Applications/Clawd.app
 ```
 
-次に Clawd のメニュー（メニューバーのアイコンを右クリック）から：
+> 自分でビルドしたアプリも署名されていません。ビルドした Mac ではそのまま動きます。別の Mac にコピーした場合は、初回のみ右クリックして**開く**を選んでください。
+
+インストールせずに試したい場合は、`clawd-pet/` の中で `npm start` を実行してください。
+
+### 初期設定
+
+Clawd のメニュー（メニューバーのアイコンを右クリック）から：
 
 1. **Claude Code → Connect Claude Code (task alerts)** —— 新しく開始したセッションでカニ、通知、リアクションが有効になります
 2. **Settings → Launch at login** —— Clawd がいつもそばにいるように
 3. 任意：**Claude Code → Approve permissions on Clawd**
-
-> アプリは署名されていません。ビルドした Mac ではそのまま動きます。別の Mac にコピーした場合は、初回のみ右クリックして**開く**を選んでください。
-
-インストールせずに試したい場合は、`clawd-pet/` の中で `npm start` を実行してください。
 
 > **言語について：** Clawd の UI は**英語**と**簡体字中国語**に対応しています（日本語には未対応）。システム言語に従い、**Language / 语言** メニューからいつでも切り替えられます。このドキュメントのメニュー名は英語 UI の表記です。
 
@@ -204,7 +219,7 @@ Clawd のアイコンはメニューバーと Dock にあります（Dock のア
 - アニメーションが止まっても、約 2 秒以内に Clawd が再開させます。ページがクラッシュした場合は再読み込みされます
 - エラーは `~/Library/Application Support/Clawd/clawd.log`（直近約 200 KB）に記録されます。問題を報告するときに添付してください
 - それでもおかしい場合は、メニューバーのアイコンから Clawd を終了して開き直してください
-- アップデートするには、まずメニューから Clawd を終了し、クイックスタートの `npm run package && ditto …` の行を再実行します
+- アップデートするには、まずメニューから Clawd を終了し、新しいリリースをダウンロードして「ダウンロード」の手順を繰り返します（ソースからビルドした場合は `npm run package && ditto …` の行を再実行します）
 
 </details>
 
