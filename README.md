@@ -10,7 +10,7 @@
 
 <p align="center"><img src="docs/showcase.png" width="760" alt="Clawd in different states: quota bar overhead, reporting a finished task, talking to itself, being petted, looking cool, typing on a laptop with you, sleeping when quota runs out, Halloween outfit"></p>
 
-> **Note:** Clawd's own interface (menus, speech bubbles, usage panel) is currently in **Simplified Chinese** only. Menu names in this README are given in English with the original Chinese in brackets so you can find them.
+> **Language:** Clawd's interface (menus, speech bubbles, usage panel) comes in **English** and **Simplified Chinese**. It follows your system language by default; switch it any time under **Language / 语言** in the menu. Menu names in this README also give the Chinese in brackets.
 
 ---
 
@@ -44,9 +44,19 @@
     - **Position** (位置): cling to the screen edge / leave the edge, back to the center of the screen
     - **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting for you
     - **Appearance** (外观): size, quota bar, holiday outfits
-    - **Settings** (设置): self-talk (chatty / normal / quiet / silent), break reminder (off / 45 / 60 / 90 min), free roaming, full click-through, show icon in Dock, launch at login
+    - **Settings** (设置): self-talk (chatty / normal / quiet / silent), break reminder (off / 45 / 60 / 90 min), sound effects, power saving, free roaming, full click-through, show icon in Dock, launch at login
+    - **Language / 语言**: follow system / 中文 / English
     - Quit Clawd (in the menu bar icon's menu)
 - When hidden, Clawd jumps, spins and shrinks away; when shown, it drops in from the top of the screen. While hidden it uses no CPU / GPU
+
+**Sound effects** (off by default, **Settings → Sound effects**, 设置 → 音效)
+- Tiny 8-bit blips synthesized on the fly (no audio files): a hop when you click it, a squeak when picked up, a thud when it lands hard, a purr when petted
+- Alerts get their own jingles: a rising chime when Claude is done, a double "ding" when it needs your approval, a falling tone on errors, plus quota low / quota back and break reminders
+
+**Light on battery**
+- Full 60 fps only while it's moving or you're interacting with it; standing still it drops to 20 fps (30 while the mouse moves elsewhere, so its eyes still follow), and 12 fps while asleep
+- On battery, or with **Settings → Power saving** (设置 → 省电模式) on, it caps at 30 fps
+- Cursor polling slows down when the mouse is still. Measured side by side on an M-series MacBook: about 41% → 24% CPU on average while roaming, about 14% standing still
 
 ## Claude Code usage
 
@@ -151,6 +161,7 @@ CLAWD_FAKE_QUOTA=30 CLAWD_FAKE_ETA=25 npm start   # pretend the quota runs out i
 CLAWD_HOOK_PORT=47616 npm start  # use another port for the hooks endpoint (while the installed Clawd is running)
 CLAWD_CC_SETTINGS=/tmp/s.json npm start           # "Connect Claude Code" edits this file instead of your real settings
 CLAWD_DEMO=1 npm start           # use fixed sample data (for README screenshots, without exposing real usage)
+CLAWD_LANG=en npm start          # force the interface language (en / zh) without changing your settings
 ```
 
 Check the usage statistics on their own:
@@ -176,6 +187,7 @@ clawd/
 │   ├── pet.js                 3D model, motion, physics, interaction, moods
 │   ├── usage.js               local usage statistics + subscription quota check
 │   ├── trayTemplate*.png      menu bar icons
+│   ├── locales/en.json        English UI strings (keyed by the original Chinese text)
 │   ├── fonts/                 pixel font (Ark Pixel Font 12px, Simplified Chinese, + OFL license)
 │   └── build/                 app icon (Blender render script + compositing script)
 ├── clawd.html                 web version of the 3D Clawd (open directly in a browser)

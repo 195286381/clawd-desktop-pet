@@ -2,7 +2,7 @@
 // 一个铺满主屏工作区(菜单栏以下、Dock 以上)的透明置顶窗口。
 // 默认鼠标穿透;只有光标落在 Clawd 身上时才接收点击,所以不会挡住你的操作。
 // 菜单栏和 Dock 里都常驻一个图标:可以把 Clawd "收起来"(最小化),再点一下放出来。
-const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, dialog, powerMonitor } = require('electron');
 const path = require('path');
 const os = require('os');
 const http = require('http');
@@ -29,6 +29,14 @@ function loadSettings() { try { return JSON.parse(fs.readFileSync(settingsFile()
 function saveSetting(key, v) {
   try { fs.writeFileSync(settingsFile(), JSON.stringify({ ...loadSettings(), [key]: v })); } catch (e) { console.error('保存设置失败', e); }
 }
+// ---------- 界面语言:跟随系统 / 中文 / English ----------
+// 文案以中文原文为键,英文界面下查 locales/en.json(渲染进程也用同一张表)
+const EN = require('./locales/en.json');
+const LANGS = [['跟随系统', 'auto'], ['中文', 'zh'], ['English', 'en']];
+let langPref = LANGS.some(([, v]) => v === loadSettings().lang) ? loadSettings().lang : 'auto';
+if (!app.isPackaged && process.env.CLAWD_LANG) langPref = process.env.CLAWD_LANG;   // 开发自测:临时切语言,不改设置
+const uiLang = () => (langPref !== 'auto' ? langPref : /^zh/i.test(app.getPreferredSystemLanguages()[0] || app.getLocale()) ? 'zh' : 'en');
+const t = (s, ...a) => ((uiLang() === 'en' && EN[s]) || s).replace(/\{(\d)\}/g, (_, i) => a[i]);
 let petScale = Number(loadSettings().scale) || 1;
 // 血条:一直显示 / 鼠标悬停时显示 / 关闭
 const HP_MODES = [['一直显示', 'always'], ['鼠标悬停时显示', 'hover'], ['关闭', 'off']];
@@ -54,13 +62,16 @@ let chatLevel = CHAT_LEVELS.some(([, v]) => v === st0.chatLevel) ? st0.chatLevel
 let breakMin = BREAKS.some(([, v]) => v === st0.breakMin) ? st0.breakMin : 60;
 let holiday = st0.holiday !== false;
 let ccNotifyDone = st0.ccNotifyDone !== false, ccNotifyAsk = st0.ccNotifyAsk !== false;
+let powerSave = st0.powerSave === true, sound = st0.sound === true;   // 省电模式(帧率上限 30)、音效:默认都关
 function syncPrefs() {
   send('chat:' + chatLevel); send('break:' + breakMin); send('holiday:' + (holiday ? 'on' : 'off'));
+  send('power-save:' + (powerSave ? 'on' : 'off')); send('sound:' + (sound ? 'on' : 'off'));
   send('cc-notify:' + (ccNotifyDone ? 1 : 0) + (ccNotifyAsk ? 1 : 0)); send('cc-hooks:' + (ccHooked() ? 'on' : 'off'));
 }
 function setPref(key, v) {
   ({ chatLevel: () => (chatLevel = v), breakMin: () => (breakMin = v), holiday: () => (holiday = v),
-     ccNotifyDone: () => (ccNotifyDone = v), ccNotifyAsk: () => (ccNotifyAsk = v) })[key]();
+     ccNotifyDone: () => (ccNotifyDone = v), ccNotifyAsk: () => (ccNotifyAsk = v),
+     powerSave: () => (powerSave = v), sound: () => (sound = v) })[key]();
   saveSetting(key, v); syncPrefs(); refreshMenus();
 }
 
@@ -103,10 +114,10 @@ function setCCHooks(on) {
 function toggleCCHooks(on) {
   try { setCCHooks(on); }
   catch (e) {
-    dialog.showErrorBox('没能修改 Claude Code 配置', `${ccSettingsFile()}\n\n${e.message}\n\n文件没有被改动。`);
+    dialog.showErrorBox(t('没能修改 Claude Code 配置'), `${ccSettingsFile()}\n\n${e.message}\n\n${t('文件没有被改动。')}`);
   }
   syncPrefs(); refreshMenus();
-  if (on && ccHooked()) dialog.showMessageBox({ message: '已连接 Claude Code', detail: '新开的 Claude Code 会话会把「在干什么 / 回复完成 / 需要确认 / 等你输入 / 出错」通知给 Clawd。已经开着的会话需要重新打开才生效。\n\n原配置已备份为 settings.json.clawd-backup。' });
+  if (on && ccHooked()) dialog.showMessageBox({ message: t('已连接 Claude Code'), detail: t('新开的 Claude Code 会话会把「在干什么 / 回复完成 / 需要确认 / 等你输入 / 出错」通知给 Clawd。已经开着的会话需要重新打开才生效。\n\n原配置已备份为 settings.json.clawd-backup。') });
 }
 // 工具名和一句话的"在干什么",只取很短的一段发给页面
 const clip = (x, n) => { const t = String(x || '').split('\n')[0].trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
@@ -149,7 +160,14 @@ http.createServer((req, res) => {
 }).on('error', e => console.error('Clawd hooks 接口启动失败', e.message)).listen(HOOK_PORT, '127.0.0.1');
 
 function setHpMode(v) { hpMode = v; saveSetting('hpMode', v); send('hp:' + v); refreshMenus(); }
-function loadPet() { win.loadFile('index.html', { query: { scale: String(petScale) } }); }
+function loadPet() { win.loadFile('index.html', { query: { scale: String(petScale), lang: uiLang() } }); }
+function setLang(v) {
+  if (v === langPref) return;
+  const before = uiLang();
+  langPref = v; saveSetting('lang', v);
+  if (uiLang() !== before && win && !win.isDestroyed()) { clinging = false; loadPet(); }   // 重新载入页面,气泡和面板换成新语言
+  refreshMenus();
+}
 function setScale(v) {
   if (v === petScale) return;
   petScale = v;
@@ -233,6 +251,7 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required',   // 音效:窗口不可聚焦,等不到"用户手势"
     },
   });
   keepOnTop();
@@ -244,18 +263,26 @@ function createWindow() {
     if (!wander) send('wander-off');
     if (passthrough) send('passthrough-on');
     send('hp:' + hpMode);
+    send('power:' + (powerMonitor.isOnBatteryPower() ? 'battery' : 'ac'));
     syncPrefs();
     pushUsage(); refreshLimits(true);
   });
 
-  // 持续把光标位置(窗口坐标)发给渲染进程:用于眼睛跟随,以及判断光标是否在 Clawd 身上
-  const timer = setInterval(() => {
-    if (!win || win.isDestroyed() || hidden) return;
-    const p = screen.getCursorScreenPoint();
-    const b = win.getBounds();
-    win.webContents.send('cursor', { x: p.x - b.x, y: p.y - b.y });
-  }, 16);
-  win.on('closed', () => { clearInterval(timer); win = null; });
+  // 持续把光标位置(窗口坐标)发给渲染进程:用于眼睛跟随,以及判断光标是否在 Clawd 身上。
+  // 光标在动时每 16ms 查一次、动了就发;停下 1 秒后放慢到每 100ms 查一次(渲染进程靠这个判断"在身上停够了")
+  let lastCur = '', lastMove = 0, timer = 0;
+  const poll = () => {
+    if (win && !win.isDestroyed() && !hidden) {
+      const p = screen.getCursorScreenPoint();
+      const b = win.getBounds();
+      const x = p.x - b.x, y = p.y - b.y, key = x + ',' + y, now = Date.now();
+      if (key !== lastCur) { lastCur = key; lastMove = now; }
+      win.webContents.send('cursor', { x, y });
+    }
+    timer = setTimeout(poll, Date.now() - lastMove < 1000 ? 16 : 100);
+  };
+  poll();
+  win.on('closed', () => { clearTimeout(timer); win = null; });
 }
 
 // 渲染进程告诉我们光标是否落在 Clawd 上
@@ -294,12 +321,15 @@ const act = (cmd) => () => { if (hidden) restore(); send(cmd); };
 function menuTemplate({ forDock = false } = {}) {
   // 按分类整理:常用操作 → 动作 / 位置 → 外观 / 设置 → 退出
   const settings = [
-    { label: '自言自语', submenu: CHAT_LEVELS.map(([name, v]) => ({ label: name, type: 'radio', checked: chatLevel === v, click: () => setPref('chatLevel', v) })) },
-    { label: '休息提醒', submenu: BREAKS.map(([name, v]) => ({ label: name, type: 'radio', checked: breakMin === v, click: () => setPref('breakMin', v) })) },
+    { label: t('自言自语'), submenu: CHAT_LEVELS.map(([name, v]) => ({ label: t(name), type: 'radio', checked: chatLevel === v, click: () => setPref('chatLevel', v) })) },
+    { label: t('休息提醒'), submenu: BREAKS.map(([name, v]) => ({ label: t(name), type: 'radio', checked: breakMin === v, click: () => setPref('breakMin', v) })) },
     { type: 'separator' },
-    { label: '自由活动', type: 'checkbox', checked: wander,
+    { label: t('音效'), type: 'checkbox', checked: sound, click: (item) => setPref('sound', item.checked) },
+    { label: t('省电模式(动作帧率减半)'), type: 'checkbox', checked: powerSave, click: (item) => setPref('powerSave', item.checked) },
+    { type: 'separator' },
+    { label: t('自由活动'), type: 'checkbox', checked: wander,
       click: (item) => { wander = item.checked; send(wander ? 'wander-on' : 'wander-off'); refreshMenus(); } },
-    { label: '完全穿透(只看不点)', type: 'checkbox', checked: passthrough,
+    { label: t('完全穿透(只看不点)'), type: 'checkbox', checked: passthrough,
       click: (item) => {
         passthrough = item.checked;
         if (passthrough && win) { ignoring = true; win.setIgnoreMouseEvents(true); }
@@ -308,49 +338,50 @@ function menuTemplate({ forDock = false } = {}) {
       } },
   ];
   if (process.platform === 'darwin' && app.dock) {
-    settings.push({ label: '在 Dock 中显示图标', type: 'checkbox', checked: showDock,
+    settings.push({ label: t('在 Dock 中显示图标'), type: 'checkbox', checked: showDock,
       click: (item) => { showDock = item.checked; saveSetting('showDock', showDock); applyDock(); refreshMenus(); } });
   }
   if (app.isPackaged) {   // 开机自启只对装进「应用程序」的打包版有意义
-    settings.push({ type: 'separator' }, { label: '开机自动启动', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
+    settings.push({ type: 'separator' }, { label: t('开机自动启动'), type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin,
       click: (item) => { app.setLoginItemSettings({ openAtLogin: item.checked }); refreshMenus(); } });
   }
   const items = [
-    { label: hidden ? '放出 Clawd' : '收起 Clawd', click: toggle },
-    { label: '查看用量', click: () => { pushUsage(); act('usage')(); } },
+    { label: t(hidden ? '放出 Clawd' : '收起 Clawd'), click: toggle },
+    { label: t('查看用量'), click: () => { pushUsage(); act('usage')(); } },
     { type: 'separator' },
-    { label: '动作', submenu: [
-      { label: '跳一下', click: act('jump') },
-      { label: '打招呼', click: act('wave') },
-      { label: '跳舞', click: act('dance') },
-      { label: '探头张望', click: act('lean') },
-      { label: '散散步', click: act('walk') },
-      { label: '伸懒腰', click: act('stretch') },
+    { label: t('动作'), submenu: [
+      { label: t('跳一下'), click: act('jump') },
+      { label: t('打招呼'), click: act('wave') },
+      { label: t('跳舞'), click: act('dance') },
+      { label: t('探头张望'), click: act('lean') },
+      { label: t('散散步'), click: act('walk') },
+      { label: t('伸懒腰'), click: act('stretch') },
     ] },
-    { label: '位置', submenu: [
-      { label: clinging ? '离开边缘' : '贴到屏幕边上', click: act('cling') },
-      { label: '回到屏幕中间', click: act('home') },
+    { label: t('位置'), submenu: [
+      { label: t(clinging ? '离开边缘' : '贴到屏幕边上'), click: act('cling') },
+      { label: t('回到屏幕中间'), click: act('home') },
     ] },
     { type: 'separator' },
     { label: 'Claude Code', submenu: [
-      { label: '连接 Claude Code(任务提醒)', type: 'checkbox', checked: ccHooked(), click: (item) => toggleCCHooks(item.checked) },
+      { label: t('连接 Claude Code(任务提醒)'), type: 'checkbox', checked: ccHooked(), click: (item) => toggleCCHooks(item.checked) },
       { type: 'separator' },
-      { label: '回复完成时提醒', type: 'checkbox', checked: ccNotifyDone, enabled: ccHooked(), click: (item) => setPref('ccNotifyDone', item.checked) },
-      { label: '需要确认 / 等你输入时提醒', type: 'checkbox', checked: ccNotifyAsk, enabled: ccHooked(), click: (item) => setPref('ccNotifyAsk', item.checked) },
+      { label: t('回复完成时提醒'), type: 'checkbox', checked: ccNotifyDone, enabled: ccHooked(), click: (item) => setPref('ccNotifyDone', item.checked) },
+      { label: t('需要确认 / 等你输入时提醒'), type: 'checkbox', checked: ccNotifyAsk, enabled: ccHooked(), click: (item) => setPref('ccNotifyAsk', item.checked) },
     ] },
-    { label: '外观', submenu: [
-      { label: '大小', submenu: SIZES.map(([name, v]) => ({ label: name, type: 'radio', checked: petScale === v, click: () => setScale(v) })) },
-      { label: '血条', submenu: HP_MODES.map(([name, v]) => ({ label: name, type: 'radio', checked: hpMode === v, click: () => setHpMode(v) })) },
-      { label: '节日装扮', type: 'checkbox', checked: holiday, click: (item) => setPref('holiday', item.checked) },
+    { label: t('外观'), submenu: [
+      { label: t('大小'), submenu: SIZES.map(([name, v]) => ({ label: t(name), type: 'radio', checked: petScale === v, click: () => setScale(v) })) },
+      { label: t('血条'), submenu: HP_MODES.map(([name, v]) => ({ label: t(name), type: 'radio', checked: hpMode === v, click: () => setHpMode(v) })) },
+      { label: t('节日装扮'), type: 'checkbox', checked: holiday, click: (item) => setPref('holiday', item.checked) },
     ] },
-    { label: '设置', submenu: settings },
+    { label: t('设置'), submenu: settings },
+    { label: uiLang() === 'en' ? 'Language / 语言' : '语言 / Language', submenu: LANGS.map(([name, v]) => ({ label: v === 'auto' ? t(name) : name, type: 'radio', checked: langPref === v, click: () => setLang(v) })) },
   ];
-  if (!forDock) items.push({ type: 'separator' }, { label: '退出 Clawd', role: 'quit' });
+  if (!forDock) items.push({ type: 'separator' }, { label: t('退出 Clawd'), role: 'quit' });
   return items;
 }
 
 function refreshMenus() {
-  if (tray) tray.setToolTip(hidden ? 'Clawd(已收起,点击放出)' : 'Clawd(点击收起)');
+  if (tray) tray.setToolTip(t(hidden ? 'Clawd(已收起,点击放出)' : 'Clawd(点击收起)'));
   if (process.platform === 'darwin' && app.dock) app.dock.setMenu(Menu.buildFromTemplate(menuTemplate({ forDock: true })));
 }
 
@@ -390,6 +421,10 @@ app.whenReady().then(() => {
   screen.on('display-metrics-changed', refit);
   screen.on('display-added', refit);
   screen.on('display-removed', refit);
+
+  // 插拔电源:用电池时渲染进程把帧率上限降到 30
+  powerMonitor.on('on-battery', () => send('power:battery'));
+  powerMonitor.on('on-ac', () => send('power:ac'));
 });
 
 // 点 Dock 图标:收起时放出来;已经在外面就跳一下打个招呼

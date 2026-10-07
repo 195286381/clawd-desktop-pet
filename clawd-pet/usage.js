@@ -116,7 +116,7 @@ function etaMinutes(w, now) {
 function fetchLimits() {
   if (fetching) return fetching;
   const bin = findClaude();
-  if (!bin) { limitsError = '没找到 claude 命令行'; return Promise.resolve(null); }
+  if (!bin) { limitsError = 'no-cli'; return Promise.resolve(null); }
   fetching = new Promise(resolve => {
     execFile(bin, ['-p', '/usage', '--no-session-persistence'],
       { cwd: os.tmpdir(), timeout: 45000, maxBuffer: 1 << 20, env: { ...process.env, NO_COLOR: '1' } },
@@ -124,7 +124,7 @@ function fetchLimits() {
         fetching = null;
         const parsed = !err && stdout ? parseUsage(stdout, Date.now()) : null;
         if (parsed) { limitsCache = parsed; limitsError = null; recordSample(parsed.fiveHour, parsed.savedAt); }
-        else limitsError = err ? '查询失败' : '没有订阅额度信息(可能在用 API Key)';
+        else limitsError = err ? 'failed' : 'no-sub';   // 错误代码,渲染进程按界面语言翻成文字
         resolve(limitsCache);
       });
   });

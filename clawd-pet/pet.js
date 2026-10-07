@@ -8,6 +8,15 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import EN from './locales/en.json' with { type: 'json' };
+
+// ---------------- 界面语言 ----------------
+// 主进程按菜单设置通过 ?lang= 传进来。文案直接以中文原文为键:t('中文') 在英文界面下查 locales/en.json,
+// 查不到就原样显示中文;{0} {1} 是占位符。
+const LANG = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'zh';
+const EN_UI = LANG === 'en';
+const t = (s, ...a) => ((EN_UI && EN[s]) || s).replace(/\{(\d)\}/g, (_, i) => a[i]);
+document.documentElement.lang = EN_UI ? 'en' : 'zh-CN';
 
 // ---------------- 画布与相机 ----------------
 // 大小:菜单里选,主进程通过 ?scale= 传进来;只缩放 3D 的 Clawd,气泡和血条的文字保持原大小
@@ -18,6 +27,7 @@ const GROUND_PX = 70 * SCALE;      // Clawd 脚底在画布里离底边的距离
 const YAW = 0.34, PITCH = 0.2;     // 略微侧着、俯视一点,露出侧面和顶面
 
 const canvas = document.getElementById('c');
+let looping = false, loopTimer = 0;   // 主循环状态,见「省电」
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(CW, CH);
@@ -275,8 +285,12 @@ bodyG.add(sweat);
 class Spring {
   constructor(x, freq, zeta) { this.x = x; this.v = 0; this.w = 2 * Math.PI * freq; this.z = zeta; }
   step(target, dt) {
-    const a = -this.w * this.w * (this.x - target) - 2 * this.z * this.w * this.v;
-    this.v += a * dt; this.x += this.v * dt;
+    // 降帧时 dt 会变大:切成不超过 1/60 秒的小步积分,不然硬弹簧会抖飞
+    const n = Math.ceil(dt * 60 - 1e-6) || 1, h = dt / n;
+    for (let i = 0; i < n; i++) {
+      const a = -this.w * this.w * (this.x - target) - 2 * this.z * this.w * this.v;
+      this.v += a * h; this.x += this.v * h;
+    }
     return this.x;
   }
 }
@@ -309,12 +323,13 @@ let wander = true;
 const LEVEL_BUSY = 50, LEVEL_TIRED = 20, LEVEL_LOW = 10;
 const MOOD_BUSY = 8, MOOD_TIRED = 25;
 const MOOD_NAME = ['精神饱满', '有点忙', '累了', '快没电了', '额度用完了'];
+const LIMIT_ERR = { 'no-cli': '没找到 claude 命令行', failed: '查询失败', 'no-sub': '没有订阅额度信息(可能在用 API Key)' };   // usage.js 给的错误代码
 let usage = null, mood = 0;
 const levelOf = r => (r <= 0 ? 4 : r < LEVEL_LOW ? 3 : r < LEVEL_TIRED ? 2 : r < LEVEL_BUSY ? 1 : 0);
 let quota = null;   // 当前最紧张的那个额度窗口:{ label, rem, resetsAt }
 function moodFrom(u) {
   const L = u.limits;
-  const wins = L ? [['5 小时额度', L.fiveHour], ['本周额度', L.sevenDay]].filter(([, w]) => w) : [];
+  const wins = L ? [[t('5 小时额度'), L.fiveHour], [t('本周额度'), L.sevenDay]].filter(([, w]) => w) : [];
   if (wins.length) {
     const [label, w] = wins.reduce((a, b) => (b[1].remaining < a[1].remaining ? b : a));
     quota = { label, rem: w.remaining, resetsAt: w.resetsAt };
@@ -335,6 +350,7 @@ function setBubbleHtml(html, type) {
   bubble.insertAdjacentHTML('afterbegin', PX_FRAME);
 }
 function say(html, secs, kind = 'say') {
+  wake();
   setBubbleHtml(html, kind !== 'usage');   // 用量面板是数据,不逐字打
   bubble.className = 'show ' + kind;
   void bubble.offsetWidth;          // 重新触发弹出动画
@@ -362,62 +378,66 @@ function typeIn(el) {
 
 const fmtCost = c => '$' + (c >= 100 ? c.toFixed(0) : c.toFixed(2));
 function fmtTokens(n) {
+  if (EN_UI) return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e4 ? Math.round(n / 1e3) + 'K' : String(n);
   if (n >= 1e8) return (n / 1e8).toFixed(2) + ' 亿';
   if (n >= 1e4) return Math.round(n / 1e4) + ' 万';
   return String(n);
 }
-function fmtReset(ms) {
+// 额度重置时间:"14:00 重置" / "明天 14:00 重置" / "周三 14:00 重置";back = true 时说"恢复"(额度用完时)
+function fmtReset(ms, back = false) {
   if (!ms) return '';
   const d = new Date(ms), now = new Date();
   const hm = d.toTimeString().slice(0, 5);
   const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date(now).setHours(0, 0, 0, 0)) / 864e5);
-  if (days === 0) return `${hm} 重置`;
-  if (days === 1) return `明天 ${hm} 重置`;
-  return `周${'日一二三四五六'[d.getDay()]} ${hm} 重置`;
+  if (EN_UI) {
+    const when = days === 0 ? hm : days === 1 ? `tomorrow ${hm}` : `${'Sun Mon Tue Wed Thu Fri Sat'.split(' ')[d.getDay()]} ${hm}`;
+    return (back ? 'back ' : 'resets ') + when;
+  }
+  const when = days === 0 ? hm : days === 1 ? `明天 ${hm}` : `周${'日一二三四五六'[d.getDay()]} ${hm}`;
+  return `${when} ${back ? '恢复' : '重置'}`;
 }
 function fmtAgo(min) {
-  if (min < 60) return `${min} 分钟`;
-  if (min < 1440) return `${Math.round(min / 60)} 小时`;
-  return `${Math.round(min / 1440)} 天`;
+  if (min < 60) return EN_UI ? `${min} min` : `${min} 分钟`;
+  if (min < 1440) return EN_UI ? `${Math.round(min / 60)} h` : `${Math.round(min / 60)} 小时`;
+  return EN_UI ? `${Math.round(min / 1440)} d` : `${Math.round(min / 1440)} 天`;
 }
 function usageHtml(u) {
-  if (!u) return '<div class="title">正在统计用量…</div>';
-  if (!u.week.messages) return '<div class="title">最近 7 天还没用过 Claude Code</div>';
+  if (!u) return `<div class="title">${t('正在统计用量…')}</div>`;
+  if (!u.week.messages) return `<div class="title">${t('最近 7 天还没用过 Claude Code')}</div>`;
   const row = (k, v, note) => `<div class="row"><span>${k}</span><b>${v}</b><i>${note}</i></div>`;
-  let html = '<div class="title">Claude Code 用量</div>';
+  let html = `<div class="title">${t('Claude Code 用量')}</div>`;
   const L = u.limits;
   if (L) {
     const bar = (label, w) => {
       if (!w) return '';
       const left = Math.round(w.remaining);
-      return `<div class="quota lv${levelOf(w.remaining)}"><div class="qhead"><span>${label}</span><b>剩 ${left}%</b><i>${fmtReset(w.resetsAt)}</i></div>`
+      return `<div class="quota lv${levelOf(w.remaining)}"><div class="qhead"><span>${label}</span><b>${t('剩 {0}%', left)}</b><i>${fmtReset(w.resetsAt)}</i></div>`
         + `<div class="qbar"><div style="width:${Math.max(0, Math.min(100, w.remaining))}%"></div></div>`
         + (w === L.fiveHour && etaInfo(w) ? (etaInfo(w).beforeReset
-          ? `<div class="eta warn">⏳ 照现在速度，约 ${fmtMin(etaInfo(w).min)}后用完</div>`
-          : `<div class="eta ok">照现在速度，撑得到重置</div>`) : '')
+          ? `<div class="eta warn">${t('⏳ 照现在速度，约 {0}后用完', fmtMin(etaInfo(w).min))}</div>`
+          : `<div class="eta ok">${t('照现在速度，撑得到重置')}</div>`) : '')
         + '</div>';
     };
-    html += bar('5 小时额度', L.fiveHour) + bar('本周额度', L.sevenDay);
+    html += bar(t('5 小时额度'), L.fiveHour) + bar(t('本周额度'), L.sevenDay);
     const ago = Math.round((Date.now() - L.savedAt) / 60000);
-    if (ago >= 10) html += `<div class="foot">额度数据 ${fmtAgo(ago)}前更新</div>`;
+    if (ago >= 10) html += `<div class="foot">${t('额度数据 {0}前更新', fmtAgo(ago))}</div>`;
     html += '<div class="sep"></div>';
   }
-  html += row('今天', fmtCost(u.today.cost), fmtTokens(u.today.tokens) + ' tokens');
+  html += row(t('今天'), fmtCost(u.today.cost), fmtTokens(u.today.tokens) + ' tokens');
   if (u.block) {
-    const h = Math.floor(u.block.remainingMin / 60), m = u.block.remainingMin % 60;
-    html += row('5 小时窗口', fmtCost(u.block.cost), `还剩 ${h ? h + ' 小时 ' : ''}${m} 分`);
+    html += row(t('5 小时窗口'), fmtCost(u.block.cost), t('还剩 {0}', fmtMin(u.block.remainingMin)));
   } else {
-    html += row('5 小时窗口', '—', '当前没有进行中的窗口');
+    html += row(t('5 小时窗口'), '—', t('当前没有进行中的窗口'));
   }
-  html += row('近 7 天', fmtCost(u.week.cost), fmtTokens(u.week.tokens) + ' tokens');
+  html += row(t('近 7 天'), fmtCost(u.week.cost), fmtTokens(u.week.tokens) + ' tokens');
   const models = Object.entries(u.byModel).sort((a, b) => b[1].cost - a[1].cost);
   if (models.length && u.today.cost > 0) {
     html += '<div class="models">' + models.slice(0, 3)
       .map(([k, v]) => `${k} ${Math.round(v.cost / u.today.cost * 100)}%`).join(' · ') + '</div>';
   }
-  const limitNote = L ? '' : (u.limitsError ? ` · 额度:${u.limitsError}` : ' · 额度查询中…');
+  const limitNote = L ? '' : (u.limitsError ? ` · ${t('额度:{0}', t(LIMIT_ERR[u.limitsError] || u.limitsError))}` : ` · ${t('额度查询中…')}`);
   html += ccSessionsHtml();
-  html += `<div class="foot">花费按 API 价格估算${limitNote} · Clawd 现在${MOOD_NAME[mood]}</div>`;
+  html += `<div class="foot">${t('花费按 API 价格估算')}${limitNote} · ${t('Clawd 现在{0}', t(MOOD_NAME[mood]))}</div>`;
   return html;
 }
 function showUsage() {
@@ -428,7 +448,7 @@ function showUsage() {
 let usageInit = false, lastNag = 0;
 function quotaLine() {
   if (!quota) return '';
-  return `${quota.label}只剩 <b>${Math.round(quota.rem)}%</b>`;
+  return t('{0}只剩 <b>{1}%</b>', quota.label, Math.round(quota.rem));
 }
 window.pet?.onUsage(u => {
   usage = u;
@@ -439,16 +459,16 @@ window.pet?.onUsage(u => {
   if (usageInit && free) {
     if (m > prev) {
       // 状态变差:主动冒一句
-      if (m === 1) say(`忙起来啦 💦<br>${quotaLine()}`, 4);
-      if (m === 2) say(`有点累了… 💦<br>${quotaLine()}`, 5);
-      if (m === 3) { say(`⚠️ 快没电了！${quotaLine()}<br>省着点用～ ${quota ? fmtReset(quota.resetsAt) : ''}`, 7); lastNag = nowSec(); }
-      if (m === 4) { flashFace('cry', 3); say(`额度用完啦… ${quota ? fmtReset(quota.resetsAt).replace('重置', '恢复') : ''}<br>我先睡会 💤`, 7); if (!isClinging()) setAction({ type: 'sleep' }); }
+      if (m === 1) say(`${t('忙起来啦 💦')}<br>${quotaLine()}`, 4);
+      if (m === 2) say(`${t('有点累了… 💦')}<br>${quotaLine()}`, 5);
+      if (m === 3) { sfx('low'); say(`${t('⚠️ 快没电了！')}${quotaLine()}<br>${t('省着点用～')} ${quota ? fmtReset(quota.resetsAt) : ''}`, 7); lastNag = nowSec(); }
+      if (m === 4) { sfx('low'); flashFace('cry', 3); say(`${t('额度用完啦…')} ${quota ? fmtReset(quota.resetsAt, true) : ''}<br>${t('我先睡会 💤')}`, 7); if (!isClinging()) setAction({ type: 'sleep' }); }
     } else if (prev >= 2 && m <= 1) {
       // 额度重置了:醒来庆祝
-      say('额度恢复啦！🎉', 4);
+      sfx('recover'); say(t('额度恢复啦！🎉'), 4);
       if (!isClinging()) setAction({ type: 'dance', dur: 3, face: 'star' }); else flashFace('star', 3);
     } else if (m === 3 && nowSec() - lastNag > 15 * 60) {
-      say(`⚠️ ${quotaLine()}，省着点用～`, 5);
+      say(`⚠️ ${quotaLine()}${t('，省着点用～')}`, 5);
       lastNag = nowSec();
     }
   }
@@ -500,15 +520,60 @@ function chatter(force = false) {
     pools.push(CHAT.working);
     // 说说 Claude 正在干什么
     const busy = [...ccSessions.values()].filter(x => x.state === 'tool').sort((a, b) => b.last - a.last)[0];
-    if (busy) pools.push([`Claude 在${ccActivity(busy)}…`], [`Claude 在${ccActivity(busy)}…`]);
+    if (busy) { const l = t('Claude 在{0}…', ccActivity(busy)); pools.push([l], [l]); }
   }
-  if (usage && usage.today.cost >= 20) pools.push([`今天已经烧了 ${fmtCost(usage.today.cost)} 的 token 啦 🔥`]);
+  const burn = usage && usage.today.cost >= 20 ? t('今天已经烧了 {0} 的 token 啦 🔥', fmtCost(usage.today.cost)) : null;
+  if (burn) pools.push([burn]);
   let line;
-  for (let i = 0; i < 5 && (!line || line === lastChat); i++) { const pool = pools[Math.floor(Math.random() * pools.length)]; line = pool[Math.floor(Math.random() * pool.length)]; }
+  for (let i = 0; i < 5 && (!line || line === lastChat); i++) { const pool = pools[Math.floor(Math.random() * pools.length)]; line = t(pool[Math.floor(Math.random() * pool.length)]); }
   lastChat = line;
   say(line, 3.5, 'chat');
-  if (line.includes('烧了')) flashFace('money', 3.5);
+  if (line === burn) flashFace('money', 3.5);
   if (!isClinging() && action.type !== 'walk' && Math.random() < 0.3) setAction({ type: 'wave', dur: 1.2 });
+}
+
+// ---------------- 音效(默认关,菜单「设置 → 音效」打开) ----------------
+// 不用音频文件:用 Web Audio 现场合成 8-bit 风格的小音效(方波 / 三角波),音量压得很低。
+// 每个音效是一串音符 [频率 Hz(0 = 停顿), 时长秒, 波形, 滑到的频率]。
+let soundOn = false, actx = null;
+const SFX_VOL = 0.05;
+const SFX = {
+  jump: [[330, 0.12, 'square', 700]],
+  land: [[160, 0.07, 'triangle', 80]],
+  bonk: [[220, 0.06, 'square', 110], [0, 0.03], [180, 0.1, 'square', 90]],
+  pickup: [[500, 0.07, 'square', 900]],
+  poke: [[620, 0.05, 'square', 310]],
+  pop: [[660, 0.05, 'triangle', 990]],
+  purr: [[200, 0.18, 'triangle', 240], [240, 0.18, 'triangle', 200]],
+  done: [[523, 0.08], [659, 0.08], [784, 0.08], [1047, 0.2]],          // 叮咚上行:做完啦
+  ask: [[880, 0.08], [0, 0.06], [880, 0.14]],                          // 叮、叮:需要你
+  error: [[392, 0.12], [311, 0.12], [247, 0.24]],                      // 下行三音:出错
+  low: [[440, 0.12, 'triangle'], [330, 0.2, 'triangle']],
+  recover: [[523, 0.07], [784, 0.07], [1047, 0.16]],
+  chime: [[784, 0.1, 'triangle'], [1047, 0.22, 'triangle']],           // 休息提醒、额度预测
+  leave: [[400, 0.18, 'square', 1400]],
+};
+function sfx(name) {
+  if (!soundOn || !SFX[name]) return;
+  try {
+    actx ||= new AudioContext();
+    if (actx.state === 'suspended') actx.resume();
+    let t = actx.currentTime + 0.02;
+    for (const [f, dur, type = 'square', to] of SFX[name]) {
+      if (f) {
+        const o = actx.createOscillator(), g = actx.createGain();
+        o.type = type;
+        o.frequency.setValueAtTime(f, t);
+        if (to) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(SFX_VOL * (type === 'triangle' ? 2 : 1), t + 0.01);   // 三角波听着轻,补一点
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g).connect(actx.destination);
+        o.start(t); o.stop(t + dur + 0.02);
+      }
+      t += dur;
+    }
+  } catch (e) { console.warn('音效播放失败', e); }
 }
 
 // ---------------- 偏好(主进程按菜单设置发过来) ----------------
@@ -533,13 +598,14 @@ function ccWorking() { ccPurge(); for (const x of ccSessions.values()) if (CC_BU
 function ccActivity(x, short = false) {   // 一句话描述会话在干什么
   if (x.state === 'tool') {
     const d = x.detail ? (short && x.detail.length > 16 ? x.detail.slice(0, 15) + '…' : x.detail) : '';
-    return `${TOOL_LABEL[x.tool] || x.tool || '干活'}${d ? '：' + d : ''}`;
+    return `${TOOL_LABEL[x.tool] ? t(TOOL_LABEL[x.tool]) : x.tool || t('干活')}${d ? t('：') + d : ''}`;
   }
-  return { thinking: '思考中', ask: '等你批准', waiting: '等你回复', done: '完成', error: '出错了' }[x.state] || '';
+  return t({ thinking: '思考中', ask: '等你批准', waiting: '等你回复', done: '完成', error: '出错了' }[x.state] || '');
 }
 const CC_ICON = { thinking: '💭', tool: '⚙️', ask: '🙋', waiting: '💬', done: '✅', error: '⚠️' };
 function fmtElapsed(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
+  if (EN_UI) return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
   return s < 60 ? `${s} 秒` : s < 3600 ? `${Math.floor(s / 60)} 分 ${s % 60} 秒` : `${Math.floor(s / 3600)} 小时 ${Math.floor(s % 3600 / 60)} 分`;
 }
 function ccSessionsHtml() {   // 用量面板底部的会话列表
@@ -548,10 +614,10 @@ function ccSessionsHtml() {   // 用量面板底部的会话列表
   const now = Date.now();
   const rows = [...ccSessions.values()].sort((a, b) => b.last - a.last).slice(0, 5).map(x => {
     const busy = CC_BUSY.includes(x.state);
-    const time = busy ? fmtElapsed(now - x.started) : x.state === 'done' || x.state === 'error' ? `${fmtElapsed(now - x.since)}前` : fmtElapsed(now - x.since);
-    return `<div class="sess st-${x.state}"><span>${esc(x.project || '会话')}</span><b>${CC_ICON[x.state] || ''} ${esc(ccActivity(x, true))}</b><i>${time}</i></div>`;
+    const time = busy ? fmtElapsed(now - x.started) : x.state === 'done' || x.state === 'error' ? t('{0}前', fmtElapsed(now - x.since)) : fmtElapsed(now - x.since);
+    return `<div class="sess st-${x.state}"><span>${esc(x.project || t('会话'))}</span><b>${CC_ICON[x.state] || ''} ${esc(ccActivity(x, true))}</b><i>${time}</i></div>`;
   }).join('');
-  return `<div class="sep"></div><div class="sub">Claude Code 会话</div>${rows}`;
+  return `<div class="sep"></div><div class="sub">${t('Claude Code 会话')}</div>${rows}`;
 }
 function ccProject(ev) { return ev.project ? `<br><b>${esc(ev.project)}</b>` : ''; }
 function ccAlert(html, secs, jump) {
@@ -583,12 +649,12 @@ window.pet?.onClaude?.(ev => {
       const took = now - x.started;
       to('done');
       // 很快就答完的不打扰,干了一会儿(≥ 15 秒)的才报告
-      if (ccNotify.done && took >= 15e3) { flashFace('happy', 2.5); ccAlert(`Claude 做完啦 ✅${ccProject(ev)}`, 6, true); }
+      if (ccNotify.done && took >= 15e3) { sfx('done'); flashFace('happy', 2.5); ccAlert(t('Claude 做完啦 ✅') + ccProject(ev), 6, true); }
       break;
     }
     case 'StopFailure':
       to('error');
-      if (ccNotify.done) { flashFace('cry', 2.5); ccAlert(`⚠️ Claude 出错停下了${ccProject(ev)}`, 7); }
+      if (ccNotify.done) { sfx('error'); flashFace('cry', 2.5); ccAlert(t('⚠️ Claude 出错停下了') + ccProject(ev), 7); }
       break;
     case 'Notification': {
       // 优先看官方的 notification_type;老版本没有这个字段时再看提示文字
@@ -598,10 +664,11 @@ window.pet?.onClaude?.(ev => {
       if (!perm && !idle && !dialog) break;   // 其他通知(登录成功等)不打扰
       to(perm || dialog ? 'ask' : 'waiting');
       if (!ccNotify.ask) break;
+      sfx('ask');
       const tool = (ev.message.match(/permission to use (.+)$/i) || [])[1] || (x.state === 'ask' && x.tool) || '';
-      if (perm) ccAlert(`🙋 ${tool ? `要用 <b>${esc(tool)}</b>，` : ''}需要你批准${ccProject(ev)}`, 8);
-      else if (dialog) ccAlert(`🙋 Claude 有问题要问你${ccProject(ev)}`, 8);
-      else ccAlert(`💬 Claude 在等你回复${ccProject(ev)}`, 6);
+      if (perm) ccAlert((tool ? t('🙋 要用 <b>{0}</b>，需要你批准', esc(tool)) : t('🙋 需要你批准')) + ccProject(ev), 8);
+      else if (dialog) ccAlert(t('🙋 Claude 有问题要问你') + ccProject(ev), 8);
+      else ccAlert(t('💬 Claude 在等你回复') + ccProject(ev), 6);
       break;
     }
     case 'SessionEnd': ccSessions.delete(sid); break;
@@ -614,7 +681,10 @@ setInterval(() => { if (bubbleKind === 'usage' && ccSessions.size) setBubbleHtml
 
 // ---------------- 额度用完预测 & 休息提醒(每次用量更新时检查) ----------------
 let etaWarnedFor = null, breakState = { start: null, n: 0 };
-function fmtMin(m) { return m >= 60 ? `${Math.floor(m / 60)} 小时${m % 60 ? ' ' + (m % 60) + ' 分' : ''}` : `${m} 分钟`; }
+function fmtMin(m) {
+  if (EN_UI) return m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ' ' + (m % 60) + ' min' : ''}` : `${m} min`;
+  return m >= 60 ? `${Math.floor(m / 60)} 小时${m % 60 ? ' ' + (m % 60) + ' 分' : ''}` : `${m} 分钟`;
+}
 function etaInfo(w) {
   if (!w || w.etaMin == null) return null;
   const toReset = w.resetsAt ? (w.resetsAt - Date.now()) / 60e3 : Infinity;
@@ -624,14 +694,16 @@ function checkEtaAndBreak(u) {
   const five = u.limits && u.limits.fiveHour, e = etaInfo(five);
   if (e && e.beforeReset && e.min <= 45 && mood < 4 && etaWarnedFor !== five.resetsAt && !paused) {
     etaWarnedFor = five.resetsAt;
-    say(`⏳ 照现在的速度<br>5 小时额度大约 <b>${fmtMin(e.min)}</b>后用完`, 7);
+    sfx('chime');
+    say(t('⏳ 照现在的速度<br>5 小时额度大约 <b>{0}</b>后用完', fmtMin(e.min)), 7);
   }
   if (breakMin > 0 && u.streakStart && !paused) {
     if (breakState.start !== u.streakStart) breakState = { start: u.streakStart, n: 0 };
     const mins = Math.floor((Date.now() - u.streakStart) / 60e3), n = Math.floor(mins / breakMin);
     if (n > breakState.n) {
       breakState.n = n;
-      say(`已经连续写了 <b>${fmtMin(mins)}</b> 啦<br>起来活动一下吧 🧘`, 7);
+      sfx('chime');
+      say(t('已经连续写了 <b>{0}</b> 啦<br>起来活动一下吧 🧘', fmtMin(mins)), 7);
       if (!isClinging() && action.type !== 'drag') setAction({ type: 'stretch', dur: 3 });
     }
   }
@@ -699,6 +771,7 @@ function finish() { setAction(action.type === 'rest' ? pickAction() : { type: 'r
 
 let paused = false;
 window.pet?.onCommand(cmd => {
+  wake();
   if (cmd === 'minimize') {
     if (press) { press = null; canvas.classList.remove('dragging'); }
     setAction({ type: 'leave' });
@@ -716,9 +789,19 @@ window.pet?.onCommand(cmd => {
     feet.forEach((f, i) => { f.x = st.x + REST_X[i]; f.y = st.y - LEG_L; f.vx = f.vy = 0; f.swing = null; });
     setAction({ type: 'fall' });
     clock.getDelta();
-    renderer.setAnimationLoop(frame);
+    startLoop();
     return;
   }
+  // 偏好设置:随时生效(拖着它的时候也不能丢)
+  if (cmd.startsWith('chat:')) { chatLevel = cmd.slice(5); return; }
+  if (cmd.startsWith('break:')) { breakMin = Number(cmd.slice(6)) || 0; return; }
+  if (cmd.startsWith('holiday:')) { holidayOn = cmd.slice(8) !== 'off'; return; }
+  if (cmd.startsWith('cc-notify:')) { ccNotify = { done: cmd[10] === '1', ask: cmd[11] === '1' }; return; }
+  if (cmd.startsWith('cc-hooks:')) { ccHooks = cmd.slice(9) === 'on'; return; }
+  if (cmd.startsWith('hp:')) { hpMode = cmd.slice(3); return; }
+  if (cmd.startsWith('power:')) { onBattery = cmd === 'power:battery'; return; }
+  if (cmd.startsWith('power-save:')) { powerSave = cmd === 'power-save:on'; return; }
+  if (cmd.startsWith('sound:')) { soundOn = cmd === 'sound:on'; return; }
   if (action.type === 'drag' || action.type === 'leave') return;
   if (isClinging() && ['jump', 'wave', 'dance', 'lean', 'walk', 'home'].includes(cmd)) stopCling();
   if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }
@@ -737,14 +820,9 @@ window.pet?.onCommand(cmd => {
   }
   if (cmd === 'chat') { chatter(true); return; }
   if (cmd.startsWith('say:')) { say(cmd.slice(4), 4); return; }   // 开发自测:让它说一句
-  if (cmd.startsWith('chat:')) { chatLevel = cmd.slice(5); return; }
-  if (cmd.startsWith('break:')) { breakMin = Number(cmd.slice(6)) || 0; return; }
-  if (cmd.startsWith('holiday:')) { holidayOn = cmd.slice(8) !== 'off'; return; }
   if (cmd.startsWith('holiday-test:')) { holidayForce = cmd.slice(13) || null; return; }   // 开发自测:提前看节日装扮
-  if (cmd.startsWith('cc-notify:')) { ccNotify = { done: cmd[10] === '1', ask: cmd[11] === '1' }; return; }
-  if (cmd.startsWith('cc-hooks:')) { ccHooks = cmd.slice(9) === 'on'; return; }
   if (cmd === 'stretch') { if (!isClinging()) setAction({ type: 'stretch', dur: 3 }); return; }
-  if (cmd.startsWith('hp:')) { hpMode = cmd.slice(3); return; }
+  if (cmd.startsWith('sfx:')) { const was = soundOn; soundOn = true; sfx(cmd.slice(4)); soundOn = was; return; }   // 开发自测:试听
   if (cmd.startsWith('face:')) { flashFace(cmd.slice(5), 6); return; }
   if (cmd.startsWith('prop:')) { propOverride = cmd.slice(5); propOverrideUntil = clock.elapsedTime + 6; return; }
   if (cmd === 'usage') { showUsage(); if (!isClinging()) setAction({ type: 'present', dur: 2.4 }); return; }
@@ -785,6 +863,7 @@ window.pet?.onCursor(p => {
   const moved = p.x !== cursor.x || p.y !== cursor.y;
   if (moved) cursor.at = now;
   cursor.x = p.x; cursor.y = p.y;
+  if (moved && targetFps() >= 55) wake();
   if (paused) return;
 
   const onPet = hitTest(p.x, p.y);
@@ -817,6 +896,7 @@ window.pet?.onCursor(p => {
 
 let press = null;
 canvas.addEventListener('pointerdown', e => {
+  wake();
   canvas.setPointerCapture(e.pointerId);
   press = { px: e.clientX, py: e.clientY, x0: st.x, y0: st.y, moved: false, last: [e.clientX, e.clientY, performance.now()] , v: [0, 0] };
 });
@@ -827,6 +907,7 @@ canvas.addEventListener('pointermove', e => {
     press.moved = true;
     if (isClinging()) { window.pet?.setClinging(false); press.x0 = st.x = Math.min(maxX(), Math.max(minX(), st.x)); }
     canvas.classList.add('dragging');
+    sfx('pickup');
     setAction({ type: 'drag' });
     st.air = true;
   }
@@ -868,7 +949,7 @@ function release() {
     pokes = pokes.filter(x => now - x < 1.5); pokes.push(now);
     if (pokes.length >= 4) {
       pokes = [];
-      hideBubble(); say('别戳啦！😤', 2); flashFace('annoyed', 2.5);
+      hideBubble(); sfx('poke'); say(t('别戳啦！😤'), 2); flashFace('annoyed', 2.5);
       press = null;
       return;
     }
@@ -878,7 +959,9 @@ function release() {
     } else if (bubbleKind === 'usage') {
       hideBubble();
       setAction(mood === 4 ? { type: 'sleep' } : mood >= 2 ? { type: 'wave', dur: 1.6 } : { type: 'jump', dir: 0, big: true });
+      if (mood < 2) sfx('jump');
     } else {
+      sfx('pop');
       showUsage();
       setAction({ type: 'present', dur: 2.4 });
     }
@@ -910,6 +993,7 @@ function setBodyPose(x, y, q) {
   bodyG.position.set(x, y, 0);
   bodyG.scale.set(1 / Math.sqrt(q), q, 1 / Math.sqrt(q));
 }
+function setTransform(el, v) { if (el.dataset.tf !== v) { el.dataset.tf = v; el.style.transform = v; } }   // 没变就不写,省得每帧重排
 function petAnchor() {
   const pos = bodyG.position.clone(), scl = bodyG.scale.clone();
   if (steadyPose) setBodyPose(...steadyPose);   // 按不带呼吸的姿态量,量完再放回去
@@ -933,8 +1017,35 @@ function measureAnchor() {
   return { x: (x0 + x1) / 2, top: y0, left: x0, right: x1, midY: (y0 + y1) / 2 };
 }
 
+// ---- 省电:闲着时降帧 ----
+// 走路、跳、被拎着、摸它时满帧;站着发呆 / 贴墙时 20 帧,光标在远处动(眼睛要跟着转)30 帧、
+// 在它附近动才满帧;睡觉 12 帧。用电池或开了省电模式时上限 30 帧。
+let onBattery = false, powerSave = false;
+function targetFps() {
+  const cap = onBattery || powerSave ? 30 : 60;
+  if (press || hovering || st.air || bubbleKind === 'usage') return cap;
+  if (action.type === 'sleep') return 12;
+  if (action.type !== 'rest' && action.type !== 'cling') return cap;
+  if (nowSec() - cursor.at > 1.5) return 20;
+  const near = Math.hypot(cursor.x - (canvasLeft + CW / 2), cursor.y - (canvasTop + CH / 2)) < CW;
+  return near ? cap : Math.min(cap, 30);
+}
+// 满帧时跟着屏幕刷新走;降帧时用定时器隔一段再要下一帧,中间整个渲染进程都能睡着(光跳过帧还是会被每秒唤醒 60 次)
+function loop(now) {
+  if (!looping) return;
+  frame();
+  if (!looping) return;   // frame() 里可能刚收起
+  const fps = targetFps();
+  if (fps >= 55) requestAnimationFrame(loop);
+  else loopTimer = setTimeout(() => { loopTimer = 0; requestAnimationFrame(loop); }, Math.max(0, 1000 / fps - (performance.now() - now) - 8));
+}
+function startLoop() { if (looping) return; looping = true; requestAnimationFrame(loop); }
+function stopLoop() { looping = false; clearTimeout(loopTimer); }
+// 有动静(光标靠近、点、拖、来了提醒)时马上回到满帧,不用等到下一个定时器
+function wake() { if (looping && loopTimer) { clearTimeout(loopTimer); loopTimer = 0; requestAnimationFrame(loop); } }
+
 function frame() {
-  const dt = Math.min(clock.getDelta(), 1 / 30);
+  const dt = Math.min(clock.getDelta(), 1 / 10);
   const t = clock.elapsedTime;
   action.t += dt;
   const a = action, p = a.t;
@@ -1098,14 +1209,14 @@ function frame() {
   else if (a.type === 'leave') {
     if (p < 0.14) { by = -0.16; squash = 0.85; armDrop = [0.12, 0.12]; eyeOpen = 0.6; }
     else {
-      if (!a.launched) { a.launched = true; st.vy = 9; st.vx = 0; st.air = true; }
+      if (!a.launched) { a.launched = true; st.vy = 9; st.vx = 0; st.air = true; sfx('leave'); }
       const k = Math.min(1, (p - 0.14) / 0.42);
       root.scale.setScalar(Math.max(0.001, 1 - k * k));
       root.rotation.y = k * Math.PI * 2;
       armRot = [1, 1];
       if (k >= 1 && !paused) {
         paused = true;
-        renderer.setAnimationLoop(null);
+        stopLoop();
         renderer.clear();
         window.pet?.hiddenDone();
         return;
@@ -1140,6 +1251,7 @@ function frame() {
       sp.squash.x = Math.max(0.68, 1 - impact * 0.02); sp.squash.v = 0;
       sp.armDrop[0].v += impact * 0.08; sp.armDrop[1].v += impact * 0.08;
       landKick = 1;
+      if (impact > 13) sfx('bonk'); else if (a.type === 'fall' && impact > 4) sfx('land');
     }
   }
   if (!st.air && a.type !== 'walk') st.vx = 0;
@@ -1251,7 +1363,7 @@ function frame() {
   // 当前表情:由动作决定(跳舞时有一定概率戴墨镜)
   let face = 'normal';
   const petting = hovering && interactive && !press && nowSec() - hoverSince > 2.5;   // 光标停在身上不动 = 在摸它
-  if (petting && !a.purred) { a.purred = true; if (!bubbleKind) say('嘿嘿～ 好舒服 💗', 2.5); }
+  if (petting && !a.purred) { a.purred = true; sfx('purr'); if (!bubbleKind) say(t('嘿嘿～ 好舒服 💗'), 2.5); }
   if (a.type === 'drag') face = 'surprised';
   else if (t < dizzyUntil) face = 'dizzy';
   else if (faceOverride && t < faceOverrideUntil) face = faceOverride;
@@ -1324,7 +1436,7 @@ function frame() {
     const hl = levelOf(r), cells = Math.min(10, Math.ceil(r / 10));
     const vert = isClinging();
     const nums = t < hpHoverUntil;   // 鼠标悬停时(移开后 1.5 秒内)把两个百分比都显示出来
-    const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt).replace('重置', '恢复')}` : hl >= 2 || nums ? `${r}%` : '';
+    const text = hl === 4 && !vert && L.fiveHour ? `0% · ${fmtReset(L.fiveHour.resetsAt, true)}` : hl >= 2 || nums ? `${r}%` : '';
     const wk = L.sevenDay ? Math.max(0, Math.min(100, Math.round(L.sevenDay.remaining))) : null;
     const pct = (v, cls = '') => vert ? `<b class="${cls}"><span>${v}</span><span>%</span></b>` : `<b class="${cls}">${v}%</b>`;
     const key = `${hl}|${cells}|${text}|${vert}|${wk}|${nums}`;
@@ -1336,12 +1448,13 @@ function frame() {
           + `<circle class="arc" cx="8" cy="8" r="6" pathLength="100" stroke-dasharray="${wk} 100" transform="rotate(-90 8 8)"/></svg>`
           + (nums ? pct(wk, `wk lv${levelOf(wk)}`) : ''));
     }
-    badge.className = 'show lv' + hl + (vert ? ' vert' : '');
+    const cls = 'show lv' + hl + (vert ? ' vert' : '');
+    if (badge.className !== cls) badge.className = cls;
     const bw = badge.offsetWidth, bh = badge.offsetHeight, an = petAnchor();
     // 站着:挂在头顶;贴边:露出来的身体太窄,挂到身体朝屏幕里的那一侧
     const bx = isClinging() ? (action.side > 0 ? an.left - bw - 10 : an.right + 10) : an.x - bw / 2;
     const by = isClinging() ? an.midY - bh / 2 : an.top - bh - 8;
-    badge.style.transform = `translate(${Math.round(Math.min(Wpx - bw - 8, Math.max(8, bx)))}px, ${Math.round(Math.min(Hpx - bh - 8, Math.max(8, by)))}px)`;
+    setTransform(badge, `translate(${Math.round(Math.min(Wpx - bw - 8, Math.max(8, bx)))}px, ${Math.round(Math.min(Hpx - bh - 8, Math.max(8, by)))}px)`);
   } else if (badge.classList.contains('show')) {
     badge.classList.remove('show');   // 只去掉 show,保留竖排等样式,淡出时不会从竖条跳成横条
   }
@@ -1354,10 +1467,11 @@ function frame() {
     const bw = bubble.offsetWidth, bh = bubble.offsetHeight, an = petAnchor(), px = an.x;
     const left = Math.round(Math.min(Wpx - bw - 8, Math.max(8, px - bw / 2)));
     const top = Math.round(Math.max(8, an.top - bh - (bubbleKind === 'chat' ? 30 : bubbleKind === 'say' ? 18 : 14)));   // 心里话下面挂着两颗小方块,要多让一点
-    bubble.style.transform = `translate(${left}px, ${top}px)`;
-    bubble.style.setProperty('--tail', `${Math.min(bw - 18, Math.max(18, px - left))}px`);
+    setTransform(bubble, `translate(${left}px, ${top}px)`);
+    const tail = `${Math.min(bw - 18, Math.max(18, px - left))}px`;
+    if (bubble.dataset.tail !== tail) { bubble.dataset.tail = tail; bubble.style.setProperty('--tail', tail); }
   }
 
   renderer.render(scene, camera);
 }
-renderer.setAnimationLoop(frame);
+startLoop();
