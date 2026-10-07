@@ -4,7 +4,7 @@
 
 <h1 align="center">Clawd 桌宠</h1>
 
-<p align="center">住在 macOS 桌面上的 3D 小螃蟹 —— Claude Code 的吉祥物 Clawd，<br>会到处溜达、能拖能扔，告诉你 Claude Code 额度还剩多少，还能在 Claude 干完活时叫你。</p>
+<p align="center">住在 macOS 桌面上的 3D 小螃蟹 —— Claude Code 的吉祥物 Clawd，<br>会到处溜达、能拖能扔，告诉你 Claude Code 额度还剩多少；Claude 干完活或等你批准时会叫你，<br>头顶还趴着一排小螃蟹，一只代表一个正在跑的会话。</p>
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b></p>
 
@@ -27,7 +27,7 @@
 
 **不挡你干活**
 - 除了 Clawd 本身，其他地方的点击都直接穿透
-- 光标只是路过 Clawd 时，它变半透明、点击也直接穿透到下面的 App；在它身上停留约 0.1 秒才变实、可以点和拖（同时停下来看着你）
+- 光标只是路过 Clawd 时，它变半透明、点击也直接穿透到下面的 App；在它身上停留约 0.1 秒才变实、可以点和拖（同时停下来看着你）。变多透明可以在 **外观 → 鼠标经过时** 里选：变半透明（默认）/ 稍微变淡 / 不变
 - 光标在它附近忙活一阵，它会自己走开，给你让出地方
 - 窗口不可聚焦：点它、拖它都不会抢走键盘，打字始终进入你当前的 App
 - 菜单里可以开「完全穿透（只看不点）」：Clawd 完全不接收鼠标，只通过菜单互动
@@ -103,6 +103,8 @@ Clawd 头顶有一个血条：10 格表示 **5 小时额度**，旁边的小圆�
 - **等太久再催一下**：等你批准（或 Claude 问你问题）超过 3 分钟还没处理，Clawd 再挥手提醒「🙋 clawd 还在等你批准」，之后每 5 分钟一次，最多催 3 次；你一处理就重新计时
 - **工具执行失败**：Clawd 露出 `x x` 晕一下（不弹对话框，搜索没结果这类小失败很常见）
 - **Claude 出错停下**：Clawd 哭着提醒「⚠️ Claude 出错停下了」
+
+<p align="center"><img src="docs/session-crabs.png" width="490" alt="会话小螃蟹趴在 Clawd 头顶，红色顶着「!」的那只在等你批准；右边是贴墙时跟着 Clawd 一起转"></p>
 
 **会话小螃蟹**：每个正在进行的 Claude Code 会话是一只像素小螃蟹，不加框，直接趴在 Clawd 头顶（最多 4 只，多的显示 +N）。贴墙时小螃蟹跟着 Clawd 一起转，侧着趴在它朝屏幕里的头顶上。颜色表示状态：灰色 = 思考中，赭石色 = 在干活（轻轻颠），红色、头顶一个像素「!」、一蹦一蹦 = 等你批准 / 等你回复，绿色 = 刚做完，红色 = 出错（做完和出错的 1 分钟后离开），等你处理的排在前面。可以在菜单「Claude Code → 头顶显示会话小螃蟹」里关掉。光标停在小螃蟹上，会列出每个会话的项目、在干什么、持续了多久，这时 Clawd 也会停下来不走开。血条和气泡会让到螃蟹上面；只有打开用量面板时才藏起来（面板里本来就有会话列表）。
 
@@ -193,7 +195,7 @@ clawd/
 │   ├── trayTemplate*.png      菜单栏图标
 │   ├── locales/en.json        英文界面文案(以中文原文为键)
 │   ├── fonts/                 像素字体(方舟像素字体 12px 简体中文版 + OFL 授权)
-│   └── build/                 应用图标(Blender 渲染脚本 + 合成脚本)
+│   └── build/                 应用图标(Blender 渲染脚本 + 合成脚本)、菜单栏图标生成脚本
 ├── clawd.html                 网页版 3D Clawd(浏览器直接打开)
 ├── claude_figure.*            最早的 Blender 人偶(造型不是 Clawd,留作纪念)
 ├── README.md                  英文说明
@@ -208,6 +210,14 @@ cd clawd-pet
 /Applications/Blender.app/Contents/MacOS/Blender -b -P build/render_icon.py
 python3 build/make_icon.py
 ```
+
+重新生成菜单栏图标（需要 Pillow）：`python3 build/make_tray.py`
+
+## 出问题时
+
+- Clawd 的动画万一卡住，2 秒左右会自己恢复；页面崩溃会自动重新载入
+- 页面里的报错会记到 `~/Library/Application Support/Clawd/clawd.log`（只保留最近约 200 KB），反馈问题时附上这个文件
+- 还是不对劲的话，从菜单栏图标退出再重新打开 Clawd
 
 ## 说明
 

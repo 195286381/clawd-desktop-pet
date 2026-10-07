@@ -4,7 +4,7 @@
 
 <h1 align="center">Clawd Desktop Pet</h1>
 
-<p align="center">A little 3D crab that lives on your macOS desktop — Clawd, the Claude Code mascot.<br>It wanders around, can be dragged and tossed, shows how much Claude Code quota you have left, and calls you when Claude finishes a task.</p>
+<p align="center">A little 3D crab that lives on your macOS desktop — Clawd, the Claude Code mascot.<br>It wanders around, can be dragged and tossed, and shows how much Claude Code quota you have left. It calls you when Claude finishes a task or needs your approval,<br>and carries a little crab on its head for each running session.</p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
 
@@ -29,7 +29,7 @@
 
 **Stays out of your way**
 - Clicks anywhere except on Clawd itself pass straight through
-- When the cursor merely passes over Clawd, it turns semi-transparent and clicks pass through to the app underneath; it becomes solid (clickable and draggable) only after the cursor rests on it for about 0.1 s — and it stops to look at you
+- When the cursor merely passes over Clawd, it turns semi-transparent and clicks pass through to the app underneath; it becomes solid (clickable and draggable) only after the cursor rests on it for about 0.1 s — and it stops to look at you. How see-through it gets is up to you: **Appearance → When the mouse passes over** (外观 → 鼠标经过时): go see-through (default) / fade slightly / no change
 - If you keep working with the cursor near it, it walks away to give you room
 - Its window never takes focus: clicking or dragging it never steals the keyboard, so typing always goes to your current app
 - The menu has **Full click-through (look, don't touch)** ("完全穿透（只看不点）"): Clawd ignores the mouse entirely and you interact through the menu only
@@ -102,6 +102,8 @@ Tick **Claude Code → Connect Claude Code (task alerts)** (连接 Claude Code�
 - **Still waiting for your approval**: if an approval (or a question from Claude) has been waiting for 3 minutes, Clawd waves again, e.g. "🙋 clawd is still waiting for your approval", then every 5 minutes, at most 3 times. Once you respond, the timer resets
 - **A tool call fails**: Clawd goes `x x` for a moment (no bubble — small failures like a search with no results are common)
 - **Claude stops with an error**: Clawd cries and tells you "⚠️ Claude stopped with an error"
+
+<p align="center"><img src="docs/session-crabs.png" width="490" alt="Session crabs riding on Clawd's head; the red one with a '!' needs your approval. Right: while clinging to the edge they turn with Clawd"></p>
 
 **Session crabs**: each active Claude Code session is a little pixel crab riding on Clawd's head — no frame, just the crab (up to 4; more show as +N). When Clawd clings to the screen edge, the crabs turn with it and ride on the side of its head that faces into the screen. Color shows the state: grey = thinking, rust = working (bobbing gently), red with a pixel "!" above it, hopping = needs your approval / waiting for your reply, green = just finished, red = error (finished and errored ones leave after a minute). Sessions waiting for you come first. You can turn them off under **Claude Code → Show session crabs on Clawd's head** (头顶显示会话小螃蟹). Rest the cursor on the crabs to see each session's project, what it's doing and for how long — Clawd stays put while you look. The quota bar and speech bubbles move up to make room; only the usage panel (which already lists sessions) hides the crabs.
 
@@ -192,7 +194,7 @@ clawd/
 │   ├── trayTemplate*.png      menu bar icons
 │   ├── locales/en.json        English UI strings (keyed by the original Chinese text)
 │   ├── fonts/                 pixel font (Ark Pixel Font 12px, Simplified Chinese, + OFL license)
-│   └── build/                 app icon (Blender render script + compositing script)
+│   └── build/                 app icon (Blender render script + compositing script) and the menu bar icon script
 ├── clawd.html                 web version of the 3D Clawd (open directly in a browser)
 ├── claude_figure.*            the very first Blender figure (not Clawd's shape — kept as a keepsake)
 ├── README.md                  English README
@@ -207,6 +209,14 @@ cd clawd-pet
 /Applications/Blender.app/Contents/MacOS/Blender -b -P build/render_icon.py
 python3 build/make_icon.py
 ```
+
+Regenerate the menu bar icon (needs Pillow): `python3 build/make_tray.py`
+
+## If something goes wrong
+
+- If Clawd's animation ever stalls, it restarts itself within about 2 seconds; if the page crashes, it reloads
+- Errors from the page are written to `~/Library/Application Support/Clawd/clawd.log` (only the most recent ~200 KB is kept). Attach this file when reporting a problem
+- Quit and reopen Clawd from the menu bar icon if anything still looks off
 
 ## Notes
 
