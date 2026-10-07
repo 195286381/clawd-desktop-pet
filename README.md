@@ -126,7 +126,7 @@ Apart from **Approve permissions on Clawd**, which waits for your click, all hoo
 - **Self-talk**: every so often it says something, depending on the time, your quota, whether it's clinging to the edge and how hard you've been using Claude Code; adjust how often under **Settings → Self-talk** (设置 → 自言自语): chatty / normal / quiet / silent
 - **Pixel-style bubbles**: things it says to you appear in a pixel-bordered dialog box with a stepped tail; self-talk uses a "thought" bubble with two little pixel squares underneath. Bubbles pop in and the text types out letter by letter, in the Ark Pixel font
 - **Holiday outfits**: a witch hat for Halloween, a Santa hat for Christmas, a red scarf for Lunar New Year (turn off under **Appearance → Holiday outfits**, 外观 → 节日装扮)
-- **Size**: small / medium / large / extra large under **Appearance → Size** (外观 → 大小)
+- **Size**: mini / small / medium / large / extra large (mini fits up to 3 session crabs on its head) under **Appearance → Size** (外观 → 大小)
 
 All menu settings are remembered in `~/Library/Application Support/Clawd/settings.json`.
 

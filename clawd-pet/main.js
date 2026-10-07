@@ -24,7 +24,7 @@ let clinging = false;    // 是否贴在屏幕边上
 
 // ---------- 设置(大小、血条显示方式),存在 userData/settings.json ----------
 const fs = require('fs');
-const SIZES = [['小', 0.75], ['中(默认)', 1], ['大', 1.3], ['特大', 1.6]];
+const SIZES = [['迷你', 0.5], ['小', 0.75], ['中(默认)', 1], ['大', 1.3], ['特大', 1.6]];
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function loadSettings() { try { return JSON.parse(fs.readFileSync(settingsFile(), 'utf8')); } catch { return {}; } }
 function saveSetting(key, v) {
