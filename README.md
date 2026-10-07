@@ -29,7 +29,7 @@
 
 **Stays out of your way**
 - Clicks anywhere except on Clawd itself pass straight through
-- When the cursor merely passes over Clawd, it turns semi-transparent and clicks pass through to the app underneath; it becomes solid (clickable and draggable) only after the cursor rests on it for about 0.2 s — and it stops to look at you
+- When the cursor merely passes over Clawd, it turns semi-transparent and clicks pass through to the app underneath; it becomes solid (clickable and draggable) only after the cursor rests on it for about 0.1 s — and it stops to look at you
 - If you keep working with the cursor near it, it walks away to give you room
 - Its window never takes focus: clicking or dragging it never steals the keyboard, so typing always goes to your current app
 - The menu has **Full click-through (look, don't touch)** ("完全穿透（只看不点）"): Clawd ignores the mouse entirely and you interact through the menu only

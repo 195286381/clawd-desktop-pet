@@ -858,7 +858,7 @@ function hitTest(px, py) {
 // 1. 光标只是路过时:Clawd 变半透明,点击直接穿透到下面的 App;
 //    在它身上停留 HOVER_INTENT 秒才变实、可以点和拖,同时停下脚步看着你。
 // 2. 光标在它附近忙活一阵(说明你在那块区域干活):它自己走开,让出地方。
-const HOVER_INTENT = 0.2, SHY_AFTER = 1.2, SHY_COOLDOWN = 6;
+const HOVER_INTENT = 0.1, SHY_AFTER = 1.2, SHY_COOLDOWN = 6;
 let hoverSince = 0, interactive = false, passthrough = false;
 let nearSince = 0, lastShy = -99;
 window.pet?.onCursor(p => {
