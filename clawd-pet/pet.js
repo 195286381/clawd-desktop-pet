@@ -647,10 +647,16 @@ window.pet?.onClaude?.(ev => {
     case 'PreToolUse':
       if (!CC_BUSY.includes(x.state)) x.started = now;   // 批准后继续干活,或者中途才连上
       to('tool'); x.since = now; x.tool = ev.tool; x.detail = ev.detail;
+      if (cmdKind(ev.cmd) === 'rm') react('rm');
       break;
+    case 'PostToolUse': {
+      const k = cmdKind(ev.cmd);
+      if (k === 'test') react('test-pass'); else if (k === 'push') react('push');
+      break;
+    }
     case 'PostToolUseFailure':
-      // 工具失败很常见(比如搜索没结果),只晕一下,不弹对话框
-      flashFace('dizzy', 1.6);
+      // 工具失败很常见(比如搜索没结果),只晕一下,不弹对话框;测试没过就垂头丧气
+      if (cmdKind(ev.cmd) === 'test') react('test-fail'); else flashFace('dizzy', 1.6);
       break;
     case 'Stop': {
       const took = now - x.started;
@@ -724,22 +730,133 @@ function headTopScreen() {
 // 每帧在画血条之前:算出要显示的会话,摆好头顶的小螃蟹(血条和气泡要让到它们上面)
 function updateRiders() {
   // 打开用量面板时先藏起来(面板里本来就列着会话);其他气泡出现时照常显示,气泡会抬到它上面
-  dotList = !crabsOn || paused || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : dotSessions();
+  const hidden = !crabsOn || paused || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type);
+  dotList = hidden ? [] : dotSessions();
   const html = dotList.slice(0, RIDERS_MAX).map(([, x]) => crabSvg(x.state)).join('')
     + (dotList.length > RIDERS_MAX ? `<b>+${dotList.length - RIDERS_MAX}</b>` : '');
   if (ridersEl.dataset.html !== html) { ridersEl.dataset.html = html; ridersEl.innerHTML = html; }
   ridersEl.classList.toggle('show', dotList.length > 0);
   ridersTop = Infinity; ridersSide = 0;
-  if (!dotList.length) return;
-  const w = ridersEl.offsetWidth, h = ridersEl.offsetHeight, hp = headTopScreen();
-  // 整组以脚底中点为轴,跟着头顶的朝向转;脚稍微陷进顶面一点,像趴在上面
-  const x = Math.round(hp.x - w / 2), y = Math.round(hp.y - h + 2);
-  setTransform(ridersEl, `translate(${x}px, ${y}px) rotate(${hp.rot}deg)`);
-  if (hp.rot === 0) ridersTop = y;     // 站着:血条、气泡挂到螃蟹上面
-  else ridersSide = h + 2;             // 侧着(贴边):螃蟹占了身体朝屏幕里的那一侧,血条再往里让开
+  let rot = 0;
+  if (dotList.length) {
+    const w = ridersEl.offsetWidth, h = ridersEl.offsetHeight, hp = headTopScreen();
+    // 整组以脚底中点为轴,跟着头顶的朝向转;脚稍微陷进顶面一点,像趴在上面
+    const x = Math.round(hp.x - w / 2), y = Math.round(hp.y - h + 2);
+    rot = hp.rot;
+    setTransform(ridersEl, `translate(${x}px, ${y + (rot === 0 ? Math.round(ridersPop.y) : 0)}px) rotate(${rot}deg)`);   // 被 Clawd 颠起来时往上飞
+    if (rot === 0) ridersTop = y;        // 站着:血条、气泡挂到螃蟹上面
+    else ridersSide = h + 2;             // 侧着(贴边):螃蟹占了身体朝屏幕里的那一侧,血条再往里让开
+  }
+  trackLeavers(hidden, rot);
+}
+// 做完 / 出错的会话到时间离开时,那只螃蟹不是直接消失,而是从头顶跳下来:做完的挥挥手(蹦两下),
+// 出错的翻个肚皮蹬蹬腿,然后横着爬走。只在站着时这样;贴边、拖着、藏起来时照旧直接消失
+const ridersPrev = new Map();   // 上一帧趴在头顶的螃蟹:sid → { state, rect }
+function trackLeavers(hidden, rot) {
+  if (hidden) { ridersPrev.clear(); return; }
+  const cx = canvasLeft + CW / 2;
+  for (const [sid, p] of ridersPrev)
+    if ((p.state === 'done' || p.state === 'error') && !dotList.some(([s]) => s === sid))
+      crabLeave(p.state, p.rect, Math.sign(p.rect.left + p.rect.width / 2 - cx) || 1);   // 往离 Clawd 远的那边走
+  ridersPrev.clear();
+  if (rot !== 0) return;
+  const els = ridersEl.querySelectorAll('.rider');
+  dotList.slice(0, RIDERS_MAX).forEach(([sid, x], i) => { if (els[i]) ridersPrev.set(sid, { state: x.state, rect: els[i].getBoundingClientRect() }); });
 }
 // 头顶最高处:身体 / 道具的顶边,头上趴着螃蟹时取螃蟹(连同「!」)的顶边。血条、气泡都挂在它上面
 const petTop = an => Math.min(an.top, ridersTop - 4);
+
+// ---------------- 小特效:彩纸、烟、跳下去爬走的小螃蟹 ----------------
+// 都是屏幕上的像素小方块(DOM),跟着主循环一帧帧动,动完就删掉
+const fxEl = document.getElementById('fx'), fx = [];
+const ridersPop = { y: 0, v: 0 };   // Clawd 把头顶的螃蟹颠起来:往上飞多高(px)、速度
+const CONFETTI = ['#D97757', '#7FA383', '#D4A24C', '#6A9BCC', '#B8433F', '#E8DFD0'];
+function fxAdd(o, cls = '', html = '') {
+  const el = document.createElement('i');
+  el.className = cls; el.innerHTML = html;
+  if (o.color) el.style.background = o.color;
+  if (o.size) el.style.width = el.style.height = o.size + 'px';
+  fxEl.appendChild(el);
+  fx.push({ el, age: 0, g: 0, vx: 0, vy: 0, drag: 0, life: 1, ...o });
+}
+function confetti(x, y) {   // 测试全过:从头顶撒一把像素彩纸
+  for (let i = 0; i < 36; i++)
+    fxAdd({ x, y, vx: rand(-240, 240), vy: rand(-540, -260), g: 900, drag: 1.4, life: rand(1.4, 2.1), color: CONFETTI[i % CONFETTI.length], flip: rand(0, 1) });
+}
+function smoke(x, y) {   // git push:脚底往两边喷烟
+  for (let i = 0; i < 16; i++) {
+    const d = i % 2 ? 1 : -1;
+    fxAdd({ x: x + d * rand(0, 14), y: y - rand(0, 6), vx: d * rand(50, 170), vy: rand(-60, -10), g: -40, drag: 2.6, life: rand(0.5, 0.9), color: '#D3CCC0', size: 2 * Math.round(rand(2, 4)) });
+  }
+}
+function crabLeave(state, r, dir) {
+  fxAdd({ crab: true, x: r.left, y: r.top, h: r.height, vx: dir * 70, vy: -240, g: 1100, dir, phase: 'hop', hops: state === 'error' ? 0 : 2, belly: state === 'error', life: 30 },
+    `crab rider st-${state}`, `<svg viewBox="0 0 9 5" width="18" height="10">${CRAB_RECTS}</svg>`);
+}
+function stepCrab(f, dt) {
+  const floor = Hpx - f.h;   // 和 Clawd 站在同一条地面上
+  let rot = 0, bob = 0;
+  if (f.phase === 'hop' || f.phase === 'wave') {
+    f.vy += f.g * dt; f.x += f.vx * dt; f.y += f.vy * dt;
+    if (f.y >= floor) {
+      f.y = floor; f.vx = 0; f.vy = 0;
+      if (f.phase === 'hop') { f.phase = f.belly ? 'belly' : 'wave'; f.t0 = f.age; }
+      if (f.phase === 'wave') { if (f.hops-- > 0) f.vy = -150; else { f.phase = 'crawl'; f.t0 = f.age; } }   // 挥手 = 原地蹦两下
+    }
+  } else if (f.phase === 'belly') {   // 翻过来肚皮朝天,蹬腿
+    rot = 180; f.jit = Math.floor(f.age * 14) % 2 ? 1 : -1;
+    if (f.age - f.t0 > 1) { f.phase = 'crawl'; f.t0 = f.age; f.jit = 0; }
+  } else {   // 横着爬走,一步一颠,慢慢淡出
+    f.x += f.dir * 55 * dt; bob = Math.floor(f.age * 9) % 2 ? -1 : 0;
+    const k = f.age - f.t0;
+    f.el.style.opacity = Math.max(0, Math.min(1, (2.4 - k) / 0.7));
+    if (k > 2.4) f.age = f.life;
+  }
+  setTransform(f.el, `translate(${Math.round(f.x + (f.jit || 0))}px, ${Math.round(f.y) + bob}px)${rot ? ` rotate(${rot}deg)` : ''}`);
+}
+function updateFx(dt) {
+  if (ridersPop.v || ridersPop.y) {   // 被颠起来的螃蟹落回头顶
+    ridersPop.v += 1500 * dt; ridersPop.y += ridersPop.v * dt;
+    if (ridersPop.y >= 0) ridersPop.y = ridersPop.v = 0;
+  }
+  for (let i = fx.length - 1; i >= 0; i--) {
+    const f = fx[i];
+    f.age += dt;
+    if (f.crab) stepCrab(f, dt);
+    else {
+      const k = Math.exp(-f.drag * dt);
+      f.vx *= k; f.vy = f.vy * k + f.g * dt; f.x += f.vx * dt; f.y += f.vy * dt;
+      if (f.flip !== undefined) {   // 彩纸翻转:一会儿宽一会儿窄
+        const w = Math.floor((f.age + f.flip) * 9) % 2;
+        f.el.style.width = (w ? 6 : 3) + 'px'; f.el.style.height = (w ? 3 : 6) + 'px';
+      }
+      f.el.style.opacity = Math.max(0, Math.min(1, (f.life - f.age) / 0.35));
+      setTransform(f.el, `translate(${Math.round(f.x)}px, ${Math.round(f.y)}px)`);
+    }
+    if (f.age >= f.life || f.y > Hpx + 20 || f.x < -40 || f.x > Wpx + 40) { f.el.remove(); fx.splice(i, 1); }
+  }
+}
+
+// ---------------- 对 Claude 干的活做出反应 ----------------
+// 测试全过:蹦起来撒彩纸;没过:垂头丧气;git push 成功:像火箭一样蹿起来,脚底冒烟;rm -rf:吓得缩成一团发抖
+const CMD_KINDS = [
+  ['rm', /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|-[rR]\s+-f|-f\s+-[rR])\b/],
+  ['push', /\bgit\b[^;&|]*\spush\b/],
+  ['test', /\b(npm|pnpm|yarn|bun)\s+(run\s+)?test\b|\b(pytest|jest|vitest|rspec|phpunit|mocha)\b|\b(go|cargo|swift|mix|dotnet|deno)\s+test\b|\bmake\s+(test|check)\b/],
+];
+const cmdKind = c => (c && (CMD_KINDS.find(([, re]) => re.test(c)) || [])[0]) || '';
+const reactAt = {};
+function react(kind) {
+  const now = Date.now();
+  if (now - (reactAt[kind] || 0) < 15e3) return;   // 好几个会话一起跑测试时别刷屏
+  if (paused || userAway || permShown || isClinging() || ['drag', 'leave', 'fall', 'sleep'].includes(action.type)) return;
+  reactAt[kind] = now;
+  const an = petAnchor();
+  if (kind === 'test-pass') { setAction({ type: 'jump', dir: 0, big: true }); flashFace('star', 2); sfx('recover'); confetti(an.x, an.top); }
+  else if (kind === 'test-fail') { setAction({ type: 'slump', dur: 2.4 }); flashFace('cry', 2.4); sfx('low'); }
+  else if (kind === 'push') { setAction({ type: 'jump', dir: 0, big: true }); flashFace('joy', 1.6); sfx('leave'); smoke(an.x, Hpx - st.y * S); }
+  else if (kind === 'rm') { setAction({ type: 'shiver', dur: 1.6 }); flashFace('surprised', 1.6); sweatT = clock.elapsedTime; }
+}
 // 血条里的内容:格子 = 5 小时额度,小圆环 = 本周额度;nums 时两个百分比都写出来
 function usageHTML(L, vert, nums) {
   const r = Math.max(0, Math.round(L.fiveHour ? L.fiveHour.remaining : 100));   // 5 小时窗口过期 = 已重置,满格
@@ -965,6 +1082,7 @@ function pickAction() {
   if (r < 0.72) return { type: 'jump', dir: 0 };
   if (r < 0.78) return { type: 'wave', dur: 2.2 };
   if (r < 0.82) return { type: 'dance', dur: 3 };
+  if (r < 0.9 && dotList.length && !isClinging()) return { type: 'bounce' };   // 和头顶的小螃蟹玩一下
   return { type: 'rest', dur: rand(2, 5) };
 }
 function setAction(a) { action = { t: 0, ...a }; }
@@ -1248,7 +1366,7 @@ function measureAnchor() {
 let onBattery = false, powerSave = false;
 function targetFps() {
   const cap = onBattery || powerSave ? 30 : 60;
-  if (press || hovering || st.air || bubbleKind === 'usage') return cap;
+  if (press || hovering || st.air || bubbleKind === 'usage' || fx.length || ridersPop.v) return cap;   // 特效在动时满帧
   if (action.type === 'sleep') return 12;
   if (action.type !== 'rest' && action.type !== 'cling') return cap;
   if (nowSec() - cursor.at > 1.5) return 20;
@@ -1312,7 +1430,7 @@ function frame() {
   let bx = 0, by = 0, rz = 0, squash = 1;
   // 呼吸起伏和发抖单独一层,最后才叠到身体上:气泡和血条定位时会把它扣掉,不然它们会跟着一像素一像素地抖
   let breathY = br, breathQ = br;
-  const shakeX = mood === 3 ? Math.sin(t * 47) * 0.006 : 0;
+  let shakeX = mood === 3 ? Math.sin(t * 47) * 0.006 : 0;
   let armRot = [0, 0], armDrop = mood >= 2 ? [0.05 + (mood - 2) * 0.04, 0.05 + (mood - 2) * 0.04] : [0, 0];
   let look = null, eyeOpen = [1, 1, 0.55, 0.4, 0.1][mood], walkDir = 0;
   let footLift = null;                      // 跳舞时直接指定抬脚高度
@@ -1413,6 +1531,31 @@ function frame() {
     // 双手举起"递上"用量卡片,看着你
     armRot = [0.9 + Math.sin(p * 8) * 0.08, 0.9 + Math.sin(p * 8 + 1) * 0.08];
     by = 0.06; look = 0; eyeOpen = Math.max(eyeOpen, 0.8);
+    if (p > a.dur) finish();
+  }
+
+  else if (a.type === 'bounce') {
+    // 和头顶的小螃蟹玩:蹲一下再往上一顶,把它们颠到半空,再落回头顶
+    if (p < 0.14) { by = -0.12; squash = 0.88; armDrop = [0.1, 0.1]; }
+    else {
+      if (!a.popped) { a.popped = true; ridersPop.v = -320; sfx('pop'); flashFace('joy', 1.1); }
+      const k = Math.max(0, 1 - (p - 0.14) / 0.25);
+      by = 0.1 * k; squash = 1 + 0.06 * k; armRot = [0.5 * k, 0.5 * k];
+    }
+    look = 0;
+    if (p > 1.2) finish();
+  }
+
+  else if (a.type === 'slump') {
+    // 测试没过:垂头丧气,身子矮一截,手耷拉着
+    const k = Math.min(1, p / 0.3);
+    by = -0.07 * k; squash = 1 - 0.07 * k; armRot = [-0.18 * k, -0.18 * k]; armDrop = [0.12 * k, 0.12 * k]; eyeOpen = 0.4; look = 0;
+    if (p > a.dur) finish();
+  }
+
+  else if (a.type === 'shiver') {
+    // 看到 rm -rf:缩成一团直发抖
+    by = -0.08; squash = 0.9; shakeX = Math.sin(t * 70) * 0.022; armRot = [-0.22, -0.22]; armDrop = [0.1, 0.1]; look = 0;
     if (p > a.dur) finish();
   }
 
@@ -1686,6 +1829,7 @@ function frame() {
   // ---- 10. 头顶血条:格子 = 5 小时额度,旁边的小圆环 = 本周额度。有额度数据就常驻(气泡开着时让位) ----
   const L = usage && usage.limits;
   if (hovering || dotsHover) { hpHoverUntil = t + 1.5; hpFromDots = dotsHover; }   // 悬停模式:移开后再停 1.5 秒(在看小螃蟹详情时也别收起)
+  updateFx(dt);
   updateRiders();
   const hpOn = hpMode === 'always' || (hpMode === 'hover' && t < hpHoverUntil);
   hpUsage = hpOn && L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused ? L : null;

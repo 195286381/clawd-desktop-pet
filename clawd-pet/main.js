@@ -85,7 +85,7 @@ function setPref(key, v) {
 // 出错停下 / 需要确认 / 会话结束)用 curl 把事件发过来。hooks 都是 async(后台跑),不拖慢 Claude Code;
 // Clawd 没开着时 curl 静默失败,也不影响。
 const HOOK_PORT = (!app.isPackaged && Number(process.env.CLAWD_HOOK_PORT)) || 47615;   // 开发自测可换端口,避免和正在运行的 Clawd 冲突
-const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'SessionEnd'];
+const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'SessionEnd'];
 const HOOK_MARK = 'clawd-hook';
 // 顺带告诉 Clawd 这个会话开在哪个 App 里(启动它的 App 的 bundle id)、哪个终端(tty),
 // 以及在 Claude App 里的会话 id,点小螃蟹时好跳过去
@@ -177,7 +177,7 @@ function toolDetail(n, input) {
 http.createServer((req, res) => {
   if (req.method !== 'POST' || (req.url !== '/hook' && req.url !== '/permission')) { res.writeHead(404); return res.end(); }
   let body = '';
-  req.on('data', c => { body += c; if (body.length > 1e5) req.destroy(); });
+  req.on('data', c => { body += c; if (body.length > 2e6) req.destroy(); });   // PostToolUse 带着工具输出,可能比较大
   req.on('end', () => {
     const perm = req.url === '/permission';
     if (!perm) res.end('ok');
@@ -192,6 +192,7 @@ http.createServer((req, res) => {
       project: d.cwd ? path.basename(String(d.cwd)) : '', message: String(d.message || ''), at: Date.now(),
       ntype: String(d.notification_type || ''),
       tool: toolName(d.tool_name), detail: toolDetail(d.tool_name, d.tool_input), error: clip(d.error, 60),
+      cmd: d.tool_name === 'Bash' ? String(d.tool_input?.command || '').replace(/\s+/g, ' ').slice(0, 500) : '',   // 认出跑测试 / git push / rm -rf,Clawd 做出反应
     });
   });
 }).on('error', e => console.error('Clawd hooks 接口启动失败', e.message)).listen(HOOK_PORT, '127.0.0.1');
