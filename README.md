@@ -18,7 +18,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
-<p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
+<p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a></p>
 
 <p align="center"><img src="docs/hero.gif" width="532" alt="Clawd with three session crabs on its head: one needs approval and shows a red '!', tests pass and confetti flies, then it reports 'Claude is done ✅'"></p>
 
@@ -248,6 +248,7 @@ clawd-pet/
 │   └── build/                 app icon (Blender render script + compositing script) and the menu bar icon script
 ├── README.md                  English README
 ├── README.zh-CN.md            Chinese README
+├── README.ja.md               Japanese README
 └── docs/                      images for the README (captured with CLAWD_DEMO=1 sample data)
 ```
 
