@@ -806,7 +806,7 @@ function showPerm() {
   const p = permShown = permQueue[0];
   if (bubbleKind === 'usage') hideBubble();
   say(t('🙋 <b>{0}</b> 要用 <b>{1}</b>', esc(p.project || t('会话')), esc(p.tool)) + (p.preview ? `<code>${esc(p.preview)}</code>` : '')
-    + `<div class="btns"><button data-d="allow">${t('允许')}</button><button data-d="deny">${t('拒绝')}</button><button data-d="pass">${t('去终端处理')}</button></div>`
+    + `<div class="btns"><button data-d="allow">${t('允许')}<small>⌥⌘Y</small></button><button data-d="deny">${t('拒绝')}<small>⌥⌘N</small></button><button data-d="pass">${t('去终端处理')}</button></div>`
     + (permQueue.length > 1 ? `<i class="more">${t('后面还有 {0} 个', permQueue.length - 1)}</i>` : ''), 3600, 'perm');
   bubble.classList.add('say');   // 外观和对你说话的气泡一样
   sfx('ask');
@@ -827,13 +827,16 @@ function showPermCount() {   // 排队的数量变了:更新「后面还有 N �
 }
 bubble.addEventListener('click', e => {
   const b = e.target.closest('button[data-d]');
-  if (!b || !permShown) return;
-  const p = permShown, d = b.dataset.d;
+  if (b) decidePerm(b.dataset.d);
+});
+function decidePerm(d) {   // 点按钮或按快捷键
+  if (!permShown) return;
+  const p = permShown;
   window.pet?.permDecision(p.id, d);
   sfx(d === 'allow' ? 'pop' : 'poke');
   if (d === 'pass' && p.app) window.pet?.focusSession({ app: p.app, tty: p.tty, host: p.host });   // 去终端处理:顺便跳过去
   dropPerm(p.id);
-});
+}
 
 // ---------------- 你离开时的小结 ----------------
 // 5 分钟没碰键盘鼠标:Clawd 去睡觉,记下这期间哪些会话做完 / 出错;一回来就醒,告诉你错过了什么
@@ -1011,6 +1014,7 @@ window.pet?.onCommand(cmd => {
   }
   if (cmd === 'back') { userAway = false; welcomeBack(); return; }
   if (cmd.startsWith('perm-cancel:')) { dropPerm(Number(cmd.slice(12))); return; }
+  if (cmd.startsWith('perm-key:')) { decidePerm(cmd.slice(9)); return; }
   if (action.type === 'drag' || action.type === 'leave') return;
   if (isClinging() && ['jump', 'wave', 'dance', 'lean', 'walk', 'home'].includes(cmd)) stopCling();
   if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }

@@ -2,7 +2,7 @@
 // 一个铺满主屏工作区(菜单栏以下、Dock 以上)的透明置顶窗口。
 // 默认鼠标穿透;只有光标落在 Clawd 身上时才接收点击,所以不会挡住你的操作。
 // 菜单栏和 Dock 里都常驻一个图标:可以把 Clawd "收起来"(最小化),再点一下放出来。
-const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, dialog, powerMonitor } = require('electron');
+const { app, BrowserWindow, screen, ipcMain, Tray, Menu, nativeImage, dialog, powerMonitor, globalShortcut } = require('electron');
 const path = require('path');
 const os = require('os');
 const http = require('http');
@@ -207,10 +207,17 @@ function frontApp(cb) {   // 最前面那个 App 的 bundle id(lsappinfo 不需�
     execFile('lsappinfo', ['info', '-only', 'bundleid', asn.trim()], (e2, out) => cb(((out || '').match(/bundleID="([^"]+)"/) || [])[1] || ''));
   });
 }
+// 气泡开着时才占用快捷键:⌥⌘Y 允许、⌥⌘N 拒绝当前这个;没有待批准的就注销,平时不抢别的 App 的按键
+const PERM_KEYS = { 'Alt+Command+Y': 'allow', 'Alt+Command+N': 'deny' };
+function syncPermKeys() {
+  const want = perms.size > 0, has = globalShortcut.isRegistered('Alt+Command+Y');
+  if (want && !has) for (const [k, d] of Object.entries(PERM_KEYS)) globalShortcut.register(k, () => send('perm-key:' + d));
+  else if (!want && has) for (const k of Object.keys(PERM_KEYS)) globalShortcut.unregister(k);
+}
 function permReply(id, behavior) {
   const p = perms.get(id);
   if (!p) return;
-  perms.delete(id); clearTimeout(p.timer);
+  perms.delete(id); clearTimeout(p.timer); syncPermKeys();
   p.res.end(behavior === 'allow' || behavior === 'deny'
     ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior } } }) : '');
 }
@@ -220,7 +227,8 @@ function askPermission(res, d, where) {
     if (front && front === where.app) return res.end('');
     const id = ++permSeq;
     perms.set(id, { res, timer: setTimeout(() => { permReply(id, ''); send('perm-cancel:' + id); }, PERM_WAIT) });
-    res.on('close', () => { if (perms.has(id)) { perms.delete(id); send('perm-cancel:' + id); } });   // Claude Code 那边不等了(比如你按了 Esc)
+    syncPermKeys();
+    res.on('close', () => { if (perms.has(id)) { perms.delete(id); syncPermKeys(); send('perm-cancel:' + id); } });   // Claude Code 那边不等了(比如你按了 Esc)
     const name = String(d.tool_name || '');
     const preview = name === 'Bash' ? String(d.tool_input?.command || '').trim() : toolDetail(name, d.tool_input);
     win.webContents.send('perm', {
