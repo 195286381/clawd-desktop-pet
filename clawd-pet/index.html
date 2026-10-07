@@ -142,6 +142,11 @@
   .rider.st-error { color: #B8433F; }
   @keyframes crabHop { 50% { translate: 0 -2px; } }
   @keyframes crabBob { 50% { translate: 0 -1px; } }
+  /* 小特效:彩纸、烟、跳下去爬走的小螃蟹 */
+  #fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+  #fx > i { position: absolute; left: 0; top: 0; display: block; width: 4px; height: 4px; }
+  #fx > i.crab { width: auto; height: auto; }
+  #fx svg { display: block; shape-rendering: crispEdges; fill: currentColor; }
   /* 悬停时的会话详情 */
   #dotstip { position: absolute; left: 0; top: 0; display: none; padding: 6px 8px; background: #FFFCF6; border: 1px solid #E8DFD0;
     border-radius: 8px; box-shadow: 0 3px 10px rgba(60, 40, 20, .14); pointer-events: none;
@@ -186,6 +191,7 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="fx"></div>
 <div id="bubble"></div>
 <div id="badge"></div>
 <div id="riders"></div>
