@@ -42,8 +42,8 @@
 需要 macOS（Apple 芯片）、[Node.js](https://nodejs.org)，以及已登录的 [Claude Code](https://code.claude.com) 命令行（用于查询额度）。
 
 ```bash
-git clone https://github.com/195286381/clawd-desktop-pet.git
-cd clawd-desktop-pet/clawd-pet
+git clone https://github.com/195286381/clawd-pet.git
+cd clawd-pet/clawd-pet
 npm install
 npm run package && ditto dist/Clawd-darwin-arm64/Clawd.app /Applications/Clawd.app
 open /Applications/Clawd.app
@@ -235,7 +235,7 @@ CLAWD_LANG=en npm start          # 临时指定界面语言（en / zh），不�
 单独检查用量统计：`cd clawd-pet && node usage.js`
 
 ```
-clawd-desktop-pet/
+clawd-pet/
 ├── clawd-pet/                 桌宠（Electron + three.js）
 │   ├── main.js                主进程：透明置顶窗口、点击穿透、菜单栏 / Dock、用量调度、Claude Code hooks
 │   ├── preload.js             主进程与页面之间的接口
@@ -277,6 +277,10 @@ python3 build/make_icon.py
 Clawd 是 Anthropic 的吉祥物。本项目是个人爱好作品，与 Anthropic 无关，也未获其认可。
 
 气泡、用量面板和血条里的文字使用 [方舟像素字体（Ark Pixel Font）](https://github.com/TakWolf/ark-pixel-font) 12px 简体中文版，© TakWolf，以 [SIL Open Font License 1.1](clawd-pet/fonts/ark-pixel-OFL.txt) 授权。
+
+## 参与贡献
+
+欢迎提 bug、想法和 PR，详见 [CONTRIBUTING.md](CONTRIBUTING.md)（Issue 和 PR 用中文写也可以）。发现安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。
 
 ## 许可证
 
