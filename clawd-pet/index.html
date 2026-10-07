@@ -115,17 +115,22 @@
   #bubble .row i { font-style: normal; color: #8A8470; text-align: right; }
   #bubble .models { margin-top: 4px; color: #6B6556; }
   #bubble .foot { margin-top: 4px; color: #A39E90; }
-  /* 会话小圆点:和血条同一套米白胶囊,一个会话一个方点 */
-  #dots { position: absolute; left: 0; top: 0; display: flex; gap: 3px; opacity: 0; padding: 5px 6px;
+  /* 会话小螃蟹:血条胶囊里竖线后面,或者血条没亮时单独一个同样式的小胶囊 */
+  #dots { position: absolute; left: 0; top: 0; display: flex; align-items: center; opacity: 0; padding: 5px 6px;
     background: #FFFCF6; border: 1px solid #E8DFD0; border-radius: 8px; box-shadow: 0 3px 10px rgba(60, 40, 20, .14);
     pointer-events: none; transition: opacity .25s; }
   #dots.show { opacity: 1; }
-  #dots i { width: 6px; height: 6px; border-radius: 1.5px; }
-  #dots .st-thinking { background: #9A9894; }
-  #dots .st-tool { background: #D97757; }
-  #dots .st-ask, #dots .st-waiting { background: #B8433F; animation: blink 1s ease-in-out infinite; }
-  #dots .st-done { background: #7FA383; }
-  #dots .st-error { background: #B8433F; }
+  #badge .sep { width: 1px; height: 12px; background: #E8DFD0; }
+  #badge.vert .sep { width: 12px; height: 1px; }
+  .crabs, #dots { gap: 3px; } .crabs { display: flex; align-items: flex-end; }
+  #badge.vert .crabs, #dots.vert { flex-direction: column; align-items: center; }
+  svg.crab { display: block; shape-rendering: crispEdges; fill: currentColor; }
+  svg.crab.st-thinking { color: #C9C0B2; }
+  svg.crab.st-tool { color: #D97757; }
+  svg.crab.st-ask, svg.crab.st-waiting { color: #B8433F; animation: crabHop .6s steps(2, jump-none) infinite; }
+  svg.crab.st-done { color: #7FA383; }
+  svg.crab.st-error { color: #B8433F; }
+  @keyframes crabHop { 50% { transform: translateY(-2px); } }
   /* 悬停时的会话详情 */
   #dotstip { position: absolute; left: 0; top: 0; display: none; padding: 6px 8px; background: #FFFCF6; border: 1px solid #E8DFD0;
     border-radius: 8px; box-shadow: 0 3px 10px rgba(60, 40, 20, .14); pointer-events: none;
