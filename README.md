@@ -43,7 +43,7 @@
     - **Actions** (动作): hop, wave, dance, peek around, take a walk, stretch
     - **Position** (位置): cling to the screen edge / leave the edge, back to the center of the screen
     - **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting for you
-    - **Appearance** (外观): size, quota bar, holiday outfits
+    - **Appearance** (外观): size, quota bar, when the mouse passes over (go see-through / fade slightly / no change), holiday outfits
     - **Settings** (设置): self-talk (chatty / normal / quiet / silent), break reminder (off / 45 / 60 / 90 min), sound effects, power saving, free roaming, full click-through, show icon in Dock, launch at login
     - **Language / 语言**: follow system / 中文 / English
     - Quit Clawd (in the menu bar icon's menu)
