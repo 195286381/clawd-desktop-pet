@@ -168,5 +168,12 @@
  "稍微变淡": "Fade slightly",
  "不变": "No change",
  "头顶显示会话小螃蟹": "Show session crabs on Clawd's head",
- "🙋 <b>{0}</b> 还在等你批准<br>已经等了 {1}": "🙋 <b>{0}</b> is still waiting for your approval<br>for {1} now"
+ "🙋 <b>{0}</b> 还在等你批准<br>已经等了 {1}": "🙋 <b>{0}</b> is still waiting for your approval<br>for {1} now",
+ "点小螃蟹跳到它的窗口": "Click a crab to jump to its window",
+ "这个会话开得早，还不知道它在哪个窗口<br>重新打开会话后就能跳过去了": "This session started before the update, so I don't know its window<br>Reopen the session to enable jumping",
+ "你不在的时候：": "While you were away:",
+ "🙋 <b>{0}</b> 等你批准，已经等了 {1}": "🙋 <b>{0}</b> needs your approval (waiting {1})",
+ "⚠️ <b>{0}</b> 出错停下了": "⚠️ <b>{0}</b> stopped with an error",
+ "✅ <b>{0}</b> 做完了": "✅ <b>{0}</b> finished",
+ "…还有 {0} 个": "…and {0} more"
 }
