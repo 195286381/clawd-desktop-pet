@@ -692,7 +692,7 @@ const crabSvg = state => {
   return `<i class="rider st-${state}">${state === 'ask' || state === 'waiting' ? BANG : ''}${crab}</i>`;   // 等你的那只头顶一个「!」
 };
 const dotsTip = document.getElementById('dotstip'), ridersEl = document.getElementById('riders');
-let dotsHover = false, dotList = [], dotsTargets = [], ridersTop = Infinity, ridersSide = 0;
+let dotsHover = false, dotList = [], dotsTargets = [], ridersTop = Infinity, ridersSide = 0, crabsOn = true;   // crabsOn:菜单里可以关掉
 function dotSessions() {   // 要显示的会话:干活 / 等你的,加上刚做完或出错不到 1 分钟的;等你的排前面
   ccPurge();
   const now = Date.now();
@@ -717,7 +717,7 @@ function headTopScreen() {
 // 每帧在画血条之前:算出要显示的会话,摆好头顶的小螃蟹(血条和气泡要让到它们上面)
 function updateRiders() {
   // 打开用量面板时先藏起来(面板里本来就列着会话);其他气泡出现时照常显示,气泡会抬到它上面
-  dotList = paused || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : dotSessions();
+  dotList = !crabsOn || paused || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : dotSessions();
   const html = dotList.slice(0, RIDERS_MAX).map(([, x]) => crabSvg(x.state)).join('')
     + (dotList.length > RIDERS_MAX ? `<b>+${dotList.length - RIDERS_MAX}</b>` : '');
   if (ridersEl.dataset.html !== html) { ridersEl.dataset.html = html; ridersEl.innerHTML = html; }
@@ -875,6 +875,7 @@ window.pet?.onCommand(cmd => {
   if (cmd.startsWith('holiday:')) { holidayOn = cmd.slice(8) !== 'off'; return; }
   if (cmd.startsWith('cc-notify:')) { ccNotify = { done: cmd[10] === '1', ask: cmd[11] === '1' }; return; }
   if (cmd.startsWith('cc-hooks:')) { ccHooks = cmd.slice(9) === 'on'; return; }
+  if (cmd.startsWith('crabs:')) { crabsOn = cmd === 'crabs:on'; return; }
   if (cmd.startsWith('hp:')) { hpMode = cmd.slice(3); return; }
   if (cmd.startsWith('power:')) { onBattery = cmd === 'power:battery'; return; }
   if (cmd.startsWith('power-save:')) { powerSave = cmd === 'power-save:on'; return; }

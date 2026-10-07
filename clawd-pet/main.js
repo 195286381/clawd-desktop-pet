@@ -65,15 +65,16 @@ let chatLevel = CHAT_LEVELS.some(([, v]) => v === st0.chatLevel) ? st0.chatLevel
 let breakMin = BREAKS.some(([, v]) => v === st0.breakMin) ? st0.breakMin : 60;
 let holiday = st0.holiday !== false;
 let ccNotifyDone = st0.ccNotifyDone !== false, ccNotifyAsk = st0.ccNotifyAsk !== false;
+let ccCrabs = st0.ccCrabs !== false;   // 头顶的会话小螃蟹,默认开
 let powerSave = st0.powerSave === true, sound = st0.sound === true;   // 省电模式(帧率上限 30)、音效:默认都关
 function syncPrefs() {
   send('chat:' + chatLevel); send('break:' + breakMin); send('holiday:' + (holiday ? 'on' : 'off'));
   send('power-save:' + (powerSave ? 'on' : 'off')); send('fade:' + hoverFade); send('sound:' + (sound ? 'on' : 'off'));
-  send('cc-notify:' + (ccNotifyDone ? 1 : 0) + (ccNotifyAsk ? 1 : 0)); send('cc-hooks:' + (ccHooked() ? 'on' : 'off'));
+  send('cc-notify:' + (ccNotifyDone ? 1 : 0) + (ccNotifyAsk ? 1 : 0)); send('cc-hooks:' + (ccHooked() ? 'on' : 'off')); send('crabs:' + (ccCrabs ? 'on' : 'off'));
 }
 function setPref(key, v) {
   ({ chatLevel: () => (chatLevel = v), breakMin: () => (breakMin = v), holiday: () => (holiday = v),
-     ccNotifyDone: () => (ccNotifyDone = v), ccNotifyAsk: () => (ccNotifyAsk = v),
+     ccNotifyDone: () => (ccNotifyDone = v), ccNotifyAsk: () => (ccNotifyAsk = v), ccCrabs: () => (ccCrabs = v),
      powerSave: () => (powerSave = v), sound: () => (sound = v), hoverFade: () => (hoverFade = v) })[key]();
   saveSetting(key, v); syncPrefs(); refreshMenus();
 }
@@ -384,6 +385,7 @@ function menuTemplate({ forDock = false } = {}) {
       { type: 'separator' },
       { label: t('回复完成时提醒'), type: 'checkbox', checked: ccNotifyDone, enabled: ccHooked(), click: (item) => setPref('ccNotifyDone', item.checked) },
       { label: t('需要确认 / 等你输入时提醒'), type: 'checkbox', checked: ccNotifyAsk, enabled: ccHooked(), click: (item) => setPref('ccNotifyAsk', item.checked) },
+      { label: t('头顶显示会话小螃蟹'), type: 'checkbox', checked: ccCrabs, enabled: ccHooked(), click: (item) => setPref('ccCrabs', item.checked) },
     ] },
     { label: t('外观'), submenu: [
       { label: t('大小'), submenu: SIZES.map(([name, v]) => ({ label: t(name), type: 'radio', checked: petScale === v, click: () => setScale(v) })) },

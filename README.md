@@ -42,7 +42,7 @@
     - Hide / show Clawd, View usage
     - **Actions** (动作): hop, wave, dance, peek around, take a walk, stretch
     - **Position** (位置): cling to the screen edge / leave the edge, back to the center of the screen
-    - **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting for you
+    - **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting for you, show session crabs on its head
     - **Appearance** (外观): size, quota bar, when the mouse passes over (go see-through / fade slightly / no change), holiday outfits
     - **Settings** (设置): self-talk (chatty / normal / quiet / silent), break reminder (off / 45 / 60 / 90 min), sound effects, power saving, free roaming, full click-through, show icon in Dock, launch at login
     - **Language / 语言**: follow system / 中文 / English
@@ -102,7 +102,7 @@ Tick **Claude Code → Connect Claude Code (task alerts)** (连接 Claude Code�
 - **A tool call fails**: Clawd goes `x x` for a moment (no bubble — small failures like a search with no results are common)
 - **Claude stops with an error**: Clawd cries and tells you "⚠️ Claude stopped with an error"
 
-**Session crabs**: each active Claude Code session is a little pixel crab riding on Clawd's head — no frame, just the crab (up to 4; more show as +N). When Clawd clings to the screen edge, the crabs turn with it and ride on the side of its head that faces into the screen. Color shows the state: grey = thinking, rust = working (bobbing gently), red with a pixel "!" above it, hopping = needs your approval / waiting for your reply, green = just finished, red = error (finished and errored ones leave after a minute). Sessions waiting for you come first. Rest the cursor on the crabs to see each session's project, what it's doing and for how long — Clawd stays put while you look. The quota bar and speech bubbles move up to make room; only the usage panel (which already lists sessions) hides the crabs.
+**Session crabs**: each active Claude Code session is a little pixel crab riding on Clawd's head — no frame, just the crab (up to 4; more show as +N). When Clawd clings to the screen edge, the crabs turn with it and ride on the side of its head that faces into the screen. Color shows the state: grey = thinking, rust = working (bobbing gently), red with a pixel "!" above it, hopping = needs your approval / waiting for your reply, green = just finished, red = error (finished and errored ones leave after a minute). Sessions waiting for you come first. You can turn them off under **Claude Code → Show session crabs on Clawd's head** (头顶显示会话小螃蟹). Rest the cursor on the crabs to see each session's project, what it's doing and for how long — Clawd stays put while you look. The quota bar and speech bubbles move up to make room; only the usage panel (which already lists sessions) hides the crabs.
 
 **Session list**: the bottom of the usage panel lists your recent Claude Code sessions (up to 5). Each row shows the project name, its current state (💭 thinking / ⚙️ running a command: npm test / ⚙️ editing: App.tsx / 🙋 needs approval / 💬 waiting for you / ✅ done / ⚠️ error) and how long it has been going, updated every second while the panel is open.
 
