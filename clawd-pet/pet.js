@@ -16,6 +16,7 @@ import EN from './locales/en.json' with { type: 'json' };
 const LANG = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'zh';
 const EN_UI = LANG === 'en';
 const t = (s, ...a) => ((EN_UI && EN[s]) || s).replace(/\{(\d)\}/g, (_, i) => a[i]);
+const tr = t;   // frame() 里的局部变量 t 是时间,会盖住 t(),那里用 tr 翻译
 document.documentElement.lang = EN_UI ? 'en' : 'zh-CN';
 
 // ---------------- 画布与相机 ----------------
@@ -1761,7 +1762,7 @@ function frame() {
   // 当前表情:由动作决定(跳舞时有一定概率戴墨镜)
   let face = 'normal';
   const petting = hovering && interactive && !press && nowSec() - hoverSince > 2.5;   // 光标停在身上不动 = 在摸它
-  if (petting && !a.purred) { a.purred = true; sfx('purr'); if (!bubbleKind) say(t('嘿嘿～ 好舒服 💗'), 2.5); }
+  if (petting && !a.purred) { a.purred = true; sfx('purr'); if (!bubbleKind) say(tr('嘿嘿～ 好舒服 💗'), 2.5); }
   if (a.type === 'drag') face = 'surprised';
   else if (t < dizzyUntil) face = 'dizzy';
   else if (faceOverride && t < faceOverrideUntil) face = faceOverride;
