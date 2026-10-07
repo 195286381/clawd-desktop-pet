@@ -250,6 +250,9 @@ function createWindow() {
     type: process.platform === 'darwin' ? 'panel' : 'toolbar',
     // 不可聚焦:点 Clawd 也不会把键盘焦点抢过来,打字始终进入你当前的 App
     focusable: false,
+    // 窗口不可聚焦,在 macOS 上一直算"非活动窗口";默认点非活动窗口的第一下只用来激活、不传给页面,
+    // 表现为有时要点两下才能拖动。打开它,第一下就直接给 Clawd
+    acceptFirstMouse: true,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
