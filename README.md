@@ -39,7 +39,20 @@ Everything runs locally. Clawd **never reads your login credentials**, and check
 
 ## Quick start
 
-Requires macOS on Apple silicon, [Node.js](https://nodejs.org), and the [Claude Code](https://code.claude.com) CLI (signed in — it's used to check your quota).
+Requires macOS on Apple silicon and the [Claude Code](https://code.claude.com) CLI (signed in — it's used to check your quota).
+
+### Download
+
+1. Download `Clawd-<version>-macos-arm64.zip` from the [latest release](https://github.com/195286381/clawd-pet/releases/latest), unzip it, and move `Clawd.app` to **Applications**
+2. The app isn't notarized, so macOS may say it's damaged or can't be opened. Run this once in Terminal:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Clawd.app
+   ```
+3. Open Clawd
+
+### Build from source
+
+Also needs [Node.js](https://nodejs.org).
 
 ```bash
 git clone https://github.com/195286381/clawd-pet.git
@@ -49,15 +62,17 @@ npm run package && ditto dist/Clawd-darwin-arm64/Clawd.app /Applications/Clawd.a
 open /Applications/Clawd.app
 ```
 
-Then, from Clawd's menu (right-click the menu bar icon):
+> A self-built app isn't signed either. It runs fine on the Mac that built it; if you copy it to another Mac, right-click it and choose **Open** the first time.
+
+Want to try it without installing? Run `npm start` inside `clawd-pet/` instead.
+
+### Set it up
+
+From Clawd's menu (right-click the menu bar icon):
 
 1. **Claude Code → Connect Claude Code (task alerts)** — turns on session crabs, alerts and reactions for newly started sessions
 2. **Settings → Launch at login** — so Clawd is always around
 3. Optional: **Claude Code → Approve permissions on Clawd**
-
-> The app isn't signed. It runs fine on the Mac that built it; if you copy it to another Mac, right-click it and choose **Open** the first time.
-
-Want to try it without installing? Run `npm start` inside `clawd-pet/` instead.
 
 > **Language:** Clawd speaks **English** and **Simplified Chinese**. It follows your system language; switch any time under **Language / 语言**. Menu names below also give the Chinese in brackets.
 
@@ -204,7 +219,7 @@ Settings are saved in `~/Library/Application Support/Clawd/settings.json`.
 - If the animation ever stalls, Clawd restarts it within about 2 seconds; if the page crashes, it reloads
 - Errors are logged to `~/Library/Application Support/Clawd/clawd.log` (last ~200 KB). Attach it when reporting a problem
 - Still odd? Quit and reopen Clawd from the menu bar icon
-- To update, quit Clawd from its menu first, then rerun the `npm run package && ditto …` line from Quick start
+- To update, quit Clawd from its menu first, then download the new release and repeat the Download steps (or, if you built it yourself, rerun the `npm run package && ditto …` line)
 
 </details>
 
