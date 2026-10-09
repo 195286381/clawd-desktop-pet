@@ -217,6 +217,8 @@ class UsageTracker {
     this.entries.push({ t, model: m.model, inp, out, cw5, cw1, cr, cost, known: !!p });
   }
 
+  costSince(t) { return this.entries.reduce((a, e) => a + (e.t >= t ? e.cost : 0), 0); }   // 某个时间之后的花费(周报用)
+
   // 汇总:今天、近 7 天、当前 5 小时窗口(与 Claude Code 订阅额度的 5 小时窗口同一思路)
   summary() {
     const now = Date.now();

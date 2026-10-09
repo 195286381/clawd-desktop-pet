@@ -142,6 +142,13 @@
   .rider.st-error { color: #B8433F; }
   @keyframes crabHop { 50% { translate: 0 -2px; } }
   @keyframes crabBob { 50% { translate: 0 -1px; } }
+  #riders .rider { position: relative; }
+  #riders .drop { position: absolute; right: -3px; top: -4px; fill: #6A9BCC; animation: crabDrip 1.1s steps(4, jump-none) infinite; }   /* 上下文快满:冒汗 */
+  @keyframes crabDrip { 0% { translate: 0 0; opacity: 1; } 100% { translate: 0 6px; opacity: 0; } }
+  /* 压缩上下文时头顶的纸箱 */
+  #packbox { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; transition: opacity .25s; }
+  #packbox.show { opacity: 1; }
+  #packbox svg { display: block; shape-rendering: crispEdges; }
   /* 小特效:彩纸、烟、跳下去爬走的小螃蟹 */
   #fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
   #fx > i { position: absolute; left: 0; top: 0; display: block; width: 4px; height: 4px; }
@@ -161,6 +168,8 @@
   #dotstip > .usage { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; padding-bottom: 6px; border-bottom: 1px dashed #E8DFD0; }
   #bubble .foot { white-space: normal; line-height: 16px; }
   #bubble .foot span { white-space: nowrap; }
+  #bubble .stats { margin: 1px 0 3px; color: #6B6556; white-space: normal; line-height: 16px; }   /* 用量面板里今天 / 近 7 天的会话、测试、commit 次数 */
+  #bubble .stats span { white-space: nowrap; }
   #bubble .quota { margin: 2px 0 6px; }
   #bubble .qhead { display: grid; grid-template-columns: 76px auto 1fr; gap: 8px; align-items: baseline; }
   #bubble .qhead span { color: #8A8470; }
@@ -195,6 +204,7 @@
 <div id="bubble"></div>
 <div id="badge"></div>
 <div id="riders"></div>
+<div id="packbox"></div>
 <div id="dotstip"></div>
 <script type="importmap">
 { "imports": {
