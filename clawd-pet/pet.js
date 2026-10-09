@@ -342,7 +342,7 @@ function moodFrom(u) {
 }
 const bubble = document.getElementById('bubble');
 const nowSec = () => performance.now() / 1000;
-let bubbleUntil = 0, bubbleKind = null;
+let bubbleUntil = 0, bubbleKind = null, bubbleLeft = null;   // bubbleLeft:给会话详情让开时,气泡还剩几秒
 // kind:'say' 对你说的话 / 'chat' 自言自语(心里话气泡)/ 'usage' 用量面板
 const PX_FRAME = '<div class="pxf"><div class="pxs"></div><i class="d1"></i><i class="d2"></i></div>';   // 像素外框
 function setBubbleHtml(html, type) {
@@ -357,6 +357,7 @@ function say(html, secs, kind = 'say') {
   bubble.className = 'show ' + kind;
   void bubble.offsetWidth;          // 重新触发弹出动画
   bubble.classList.add('pop');
+  if (dotsHover && (kind === 'say' || kind === 'chat')) bubble.classList.add('yield');   // 会话详情开着:先让开,不闪一下
   bubbleUntil = nowSec() + secs;
   bubbleKind = kind;
 }
@@ -614,20 +615,20 @@ function ccActivity(x, short = false) {   // 一句话描述会话在干什么
   }
   return t({ thinking: '思考中', ask: '等你批准', waiting: '等你回复', done: '完成', error: '出错了' }[x.state] || '');
 }
-const CC_ICON = { thinking: '💭', tool: '⚙️', ask: '🙋', waiting: '💬', done: '✅', error: '⚠️' };
+const ccIcon = state => `<em class="ico st-${state}">${crabArt(0)}</em>`;   // 会话列表里的状态图标:和头顶一样的像素小螃蟹,颜色表示状态
 function fmtElapsed(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
   if (EN_UI) return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor(s % 3600 / 60)}m`;
   return s < 60 ? `${s} 秒` : s < 3600 ? `${Math.floor(s / 60)} 分 ${s % 60} 秒` : `${Math.floor(s / 3600)} 小时 ${Math.floor(s % 3600 / 60)} 分`;
 }
-function ccSessionsHtml() {   // 用量面板底部的会话列表
+function ccSessionsHtml() {   // 用量面板底部的会话列表,点一行跳到那个会话
   ccPurge();
   if (!ccSessions.size) return '';
   const now = Date.now();
-  const rows = [...ccSessions.values()].sort((a, b) => b.last - a.last).slice(0, 5).map(x => {
+  const rows = [...ccSessions.entries()].sort((a, b) => b[1].last - a[1].last).slice(0, 5).map(([sid, x]) => {
     const busy = CC_BUSY.includes(x.state);
     const time = busy ? fmtElapsed(now - x.started) : x.state === 'done' || x.state === 'error' ? t('{0}前', fmtElapsed(now - x.since)) : fmtElapsed(now - x.since);
-    return `<div class="sess st-${x.state}"><span>${esc(x.title || x.project || t('会话'))}</span><b>${CC_ICON[x.state] || ''} ${esc(ccActivity(x, true))}</b><i>${time}</i></div>`;
+    return `<div class="sess st-${x.state}" data-sid="${esc(sid)}"><span>${esc(x.title || x.project || t('会话'))}</span><b>${ccIcon(x.state)}${esc(ccActivity(x, true))}</b><i>${time}</i></div>`;
   }).join('');
   return `<div class="sep"></div><div class="sub">${t('Claude Code 会话')}</div>${rows}`;
 }
@@ -716,8 +717,8 @@ window.pet?.onClaude?.(ev => {
 // ---------------- 会话小螃蟹 & 任务标记「!」 ----------------
 // 每个 Claude Code 会话一只像素小螃蟹,不加框直接趴在 Clawd 头顶,跟着它一起转(贴边时侧过来趴在朝屏幕里的头顶上)。颜色表示状态:
 // 灰 = 思考中,橙 = 在干活(轻轻颠),红 = 等你批准 / 回复(头顶一个像素「!」,一起蹦),绿 = 刚做完,红 = 出错
-// (做完 / 出错的 1 分钟后消失)。光标移到小螃蟹上,列出每个会话在干什么。
-const DOT_MAX = 6, DOT_DONE_KEEP = 60e3, RIDERS_MAX = SCALE < 0.6 ? 3 : 4;   // 头顶最多趴 4 只(迷你只有 3 只的地方),多的显示 +N
+// (做完 / 出错的 1 分钟后消失)。光标移到小螃蟹上,列出每个会话在干什么,点螃蟹或详情里的一行跳到那个会话。
+const DOT_MAX = 6, DOT_DONE_KEEP = 60e3, RIDERS_MAX = SCALE < 0.6 ? 3 : 4;   // 头顶最多趴 4 只(迷你只有 3 只的地方),多的每个一颗像素点
 const DOT_RANK = { ask: 0, waiting: 1, tool: 2, thinking: 3, error: 4, done: 5 };
 // 9×5 像素,和菜单栏图标同一个造型;上下文快满时换成胖一圈(≥ 75%)、再胖一圈并冒汗(≥ 90%)的
 const CRAB_PX = [
@@ -734,10 +735,12 @@ const crabArt = fat => {
 };
 const BANG = '<svg class="bang" viewBox="0 0 1 6" width="2" height="12"><rect width="1" height="4"/><rect y="5" width="1" height="1"/></svg>';   // 像素「!」
 const DROP = '<svg class="drop" viewBox="0 0 2 3" width="4" height="6"><rect width="1" height="1"/><rect y="1" width="2" height="2"/></svg>';   // 像素汗珠
-const crabSvg = (state, fat) =>   // 等你的那只头顶一个「!」;快满的那只冒汗
-  `<i class="rider st-${state}">${state === 'ask' || state === 'waiting' ? BANG : ''}${fat === 2 ? DROP : ''}${crabArt(fat)}</i>`;
+const crabSvg = (state, fat, lift) =>   // 等你的那只头顶一个「!」;快满的那只冒汗;光标指着的那只抬起来
+  `<i class="rider st-${state}${lift ? ' lift' : ''}">${state === 'ask' || state === 'waiting' ? BANG : ''}${fat === 2 ? DROP : ''}${crabArt(fat)}</i>`;
 const dotsTip = document.getElementById('dotstip'), ridersEl = document.getElementById('riders');
-let dotsHover = false, dotsSince = 0, dotList = [], dotsTargets = [], ridersTop = Infinity, ridersSide = 0, crabsOn = true;   // crabsOn:菜单里可以关掉
+let dotsHover = false, dotsSince = 0, dotList = [], ridersTop = Infinity, ridersSide = 0, crabsOn = true;   // crabsOn:菜单里可以关掉
+let tipList = [], tipAnchor = null;   // 会话详情里列的会话(包括做完在等你的);详情挂在哪(头顶螃蟹那一排,没有螃蟹就是头顶)
+let dotsPicked = null, dotsNoteUntil = 0;   // 光标指着的会话(螃蟹或详情里的一行);点了跳不过去的会话时,详情底部的说明显示到什么时候
 function dotSessions() {   // 要显示的会话:干活 / 等你的,加上刚做完或出错不到 1 分钟的;等你的排前面
   ccPurge();
   const now = Date.now();
@@ -745,6 +748,10 @@ function dotSessions() {   // 要显示的会话:干活 / 等你的,加上刚做
     .filter(([, x]) => CC_BUSY.includes(x.state) || x.state === 'ask' || x.state === 'waiting' || x.compacting || now - x.since < DOT_DONE_KEEP)
     .sort((a, b) => DOT_RANK[a[1].state] - DOT_RANK[b[1].state] || b[1].started - a[1].started)
     .slice(0, DOT_MAX);
+}
+function tipSessions() {   // 会话详情里列的:所有还在的会话,包括做完在等你回复的;排序和头顶螃蟹一样
+  ccPurge();
+  return [...ccSessions.entries()].sort((a, b) => DOT_RANK[a[1].state] - DOT_RANK[b[1].state] || b[1].started - a[1].started).slice(0, DOT_MAX);
 }
 const headPt = new THREE.Vector3(), headUp = new THREE.Vector3();
 // 身体顶面中心在屏幕上的位置,以及「头顶朝上」在屏幕上的方向(取最接近的 90° 倍数,像素保持清晰;
@@ -764,8 +771,10 @@ function updateRiders() {
   // 打开用量面板时先藏起来(面板里本来就列着会话);其他气泡出现时照常显示,气泡会抬到它上面
   const hidden = !crabsOn || paused || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type);
   dotList = hidden ? [] : dotSessions();
-  const html = dotList.slice(0, RIDERS_MAX).map(([, x]) => crabSvg(x.state, crabFat(x))).join('')
-    + (dotList.length > RIDERS_MAX ? `<b>+${dotList.length - RIDERS_MAX}</b>` : '');
+  // 拎着时不显示详情;等你批准的气泡(带按钮)和用量面板开着时也不显示,免得盖住
+  tipList = !crabsOn || paused || permShown || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : tipSessions();
+  const html = dotList.slice(0, RIDERS_MAX).map(([sid, x]) => crabSvg(x.state, crabFat(x), sid === dotsPicked)).join('')
+    + (dotList.length > RIDERS_MAX ? `<span class="pips">${dotList.slice(RIDERS_MAX).map(([, x]) => `<i class="pip st-${x.state}"></i>`).join('')}</span>` : '');
   if (ridersEl.dataset.html !== html) { ridersEl.dataset.html = html; ridersEl.innerHTML = html; }
   ridersEl.classList.toggle('show', dotList.length > 0);
   ridersTop = Infinity; ridersSide = 0;
@@ -960,54 +969,74 @@ function usageHTML(L, vert, nums) {
       + (nums ? pct(wk, `wk lv${levelOf(wk)}`) : ''));
   return { html, hl };
 }
-let hpUsage = null, hpFromDots = false;   // 这一帧血条该显示的用量(没有就是 null);最近一次悬停是不是在小螃蟹上
-function updateDots() {   // 光标停在小螃蟹上时的会话详情
-  dotsTargets = dotList.length ? [ridersEl] : [];
-  if (!dotsTargets.length) { dotsHover = false; dotsTip.classList.remove('show'); return; }
-  // 悬停详情:每个会话一行(图标 项目 在干什么 多久)
+let hpUsage = null, hpFromDots = false;   // 这一帧血条该显示的用量(没有就是 null);最近一次悬停是不是在看会话详情
+function updateDots() {   // 光标停在 Clawd 或小螃蟹上时的会话详情
+  if (!tipList.length) { tipAnchor = null; dotsHover = false; dotsPicked = null; dotsTip.classList.remove('show'); return; }
+  // 详情挂在头顶那排螃蟹上;没有螃蟹(会话都在等你回复)时挂在头顶,和血条一个位置
+  const an = !dotList.length && petAnchor();
+  tipAnchor = dotList.length ? ridersEl.getBoundingClientRect() : { left: an.left, right: an.right, top: petTop(an), bottom: an.top, midY: an.midY };
+  // 悬停详情:每个会话一行(图标 项目 在干什么 多久),光标可以移进来点
   dotsTip.classList.toggle('show', dotsHover);
-  if (!dotsHover) return;
+  if (!dotsHover) { dotsPicked = null; return; }
   const now = Date.now();
   const u = hpUsage && usageHTML(hpUsage, false, true);
-  const html = (u ? `<section class="usage lv${u.hl}">${u.html}</section>` : '') + dotList.map(([, s]) => {
+  const html = PX_FRAME + (u ? `<section class="usage lv${u.hl}">${u.html}</section>` : '') + tipList.map(([sid, s], i) => {
     const time = CC_BUSY.includes(s.state) ? fmtElapsed(now - s.started) : fmtElapsed(now - s.since);
     const ctx = s.ctx >= CTX_FAT ? ` · ${t('上下文 {0}%', Math.min(99, Math.round(s.ctx * 100)))}` : '';   // 快满了才显示
-    return `<div class="st-${s.state}"><span>${CC_ICON[s.state] || ''} ${esc(s.title || s.project || t('会话'))}</span><b>${esc(ccActivity(s, true) + ctx)}</b><i>${time}</i></div>`;
-  }).join('') + (dotList.some(([, s]) => s.app) ? `<p>${t('点小螃蟹跳到它的窗口')}</p>` : '');
+    return `<div class="row st-${s.state}${sid === dotsPicked ? ' on' : ''}" data-i="${i}"><span>${ccIcon(s.state)}${esc(s.title || s.project || t('会话'))}</span><b>${esc(ccActivity(s, true) + ctx)}</b><i>${time}</i></div>`;
+  }).join('') + (now < dotsNoteUntil ? `<p class="note">${t('还不知道这个会话在哪个窗口，重开一次就能跳了')}</p>`   // 说明写在详情框里(另弹气泡会被详情框挡住),只占一行,框不会变高把行挤走
+    : tipList.some(([, s]) => s.app) ? `<p>${t('点一下跳到它的窗口')}</p>` : '');
   if (dotsTip.dataset.html !== html) { dotsTip.dataset.html = html; dotsTip.innerHTML = html; }
-  const rs = dotsTargets.map(e => e.getBoundingClientRect());
-  const top = Math.min(...rs.map(r => r.top)), bottom = Math.max(...rs.map(r => r.bottom)), cx = rs[0].left + rs[0].width / 2;
+  const { left, right, top, bottom } = tipAnchor, cx = (left + right) / 2;
   const tw = dotsTip.offsetWidth, th = dotsTip.offsetHeight;
   let tx = Math.round(Math.min(Wpx - tw - 8, Math.max(8, cx - tw / 2)));
-  let ty = Math.round(top - th - 8 < 8 ? bottom + 8 : top - th - 8);
+  const below = top - th - 14 < 8;   // 头顶放不下:挂到下面
+  let ty = Math.round(below ? bottom + 8 : top - th - 14);   // 底下还挂着像素小尖角,多让一点
   if (isClinging()) {   // 贴边:螃蟹在身体朝屏幕里的那一侧,详情放到它们再往里
-    tx = Math.round(action.side > 0 ? Math.min(...rs.map(r => r.left)) - tw - 8 : Math.max(...rs.map(r => r.right)) + 8);
+    tx = Math.round(action.side > 0 ? left - tw - 8 : right + 8);
     tx = Math.min(Wpx - tw - 8, Math.max(8, tx));
-    ty = Math.round(Math.min(Hpx - th - 8, Math.max(8, (top + bottom) / 2 - th / 2)));
+    ty = Math.round(Math.min(Hpx - th - 8, Math.max(8, (tipAnchor.midY ?? (top + bottom) / 2) - th / 2)));
   }
   setTransform(dotsTip, `translate(${tx}px, ${ty}px)`);
+  // 和对话框一样的像素外框;挂在头顶时小尖角指着螃蟹 / Clawd,贴边或挂到下面时不要尖角
+  const tail = !isClinging() && !below;
+  dotsTip.classList.toggle('notail', !tail);
+  const tp = tail ? `${Math.round(Math.min(tw - 18, Math.max(18, cx - tx)))}px` : '50%';
+  if (dotsTip.dataset.tail !== tp) { dotsTip.dataset.tail = tp; dotsTip.style.setProperty('--tail', tp); }
 }
 
-// 点小螃蟹:跳到这个会话所在的窗口(iTerm / Terminal 精确到标签页,Claude App 精确到会话,其他 App 切到最前面)
-// 螃蟹很小,按离光标最近的那只算;在捕获阶段拦下来,不让 Clawd 本身当成被点了
+// 点小螃蟹或详情里的一行:跳到这个会话所在的窗口(iTerm / Terminal 精确到标签页,Claude App 精确到会话,其他 App 切到最前面)
+function jumpSession(s) {   // 跳过去了返回 true;旧版 hooks 连的会话不带 App 信息,跳不了
+  if (!s.app) return false;
+  sfx('pop'); window.pet?.focusSession({ app: s.app, tty: s.tty, host: s.host });
+  return true;
+}
+const nearRect = (r, x, y, m = 0) => x > r.left - m && x < r.right + m && y > r.top - m && y < r.bottom + m;
+// 光标下是哪个会话:详情里的那一行,或者头顶的螃蟹(螃蟹很小,按离光标最近的那只算)
+function dotsPick(x, y) {
+  const row = document.elementFromPoint(x, y)?.closest('#dotstip [data-i]');
+  if (row) return tipList[row.dataset.i]?.[0] ?? null;
+  if (!dotList.length || !nearRect(ridersEl.getBoundingClientRect(), x, y, 6)) return null;
+  const els = [...ridersEl.querySelectorAll('.rider')];
+  if (!els.length) return null;
+  const dist = el => { const r = el.getBoundingClientRect(); return Math.hypot(x - (r.left + r.right) / 2, y - (r.top + r.bottom) / 2); };
+  return dotList[els.indexOf(els.reduce((a, b) => (dist(b) < dist(a) ? b : a)))]?.[0] ?? null;
+}
+// 在捕获阶段拦下来,不让 Clawd 本身当成被点了;点在详情框的空白处什么也不做
 window.addEventListener('pointerdown', e => {
   if (!dotsHover) return;
+  const sid = dotsPick(e.clientX, e.clientY);
+  if (!sid && !e.target.closest?.('#dotstip')) return;
   e.stopPropagation(); e.preventDefault();
-  const dist = el => { const r = el.getBoundingClientRect(); return Math.hypot(e.clientX - (r.left + r.right) / 2, e.clientY - (r.top + r.bottom) / 2); };
-  const els = [...ridersEl.querySelectorAll('.rider')];
-  if (!els.length) return;
-  const i = els.indexOf(els.reduce((a, b) => (dist(b) < dist(a) ? b : a)));
-  const s = dotList[i]?.[1];
-  if (!s) return;
-  if (s.app) { sfx('pop'); window.pet?.focusSession({ app: s.app, tty: s.tty, host: s.host }); }
-  else say(t('这个会话开得早，还不知道它在哪个窗口<br>重新打开会话后就能跳过去了'), 4);   // 旧版 hooks 连的会话不带 App 信息
+  const s = sid && ccSessions.get(sid);
+  if (s && !jumpSession(s)) { sfx('poke'); dotsNoteUntil = Date.now() + 4000; }
 }, true);
 
 // ---------------- 在 Clawd 上批准权限 ----------------
 // Claude 要你批准、而它所在的终端不在最前面时,Clawd 弹出「允许 / 拒绝 / 去终端处理」。一次只问一个,其他的排队;
 // 60 秒没点(主进程计时)就交回终端照常弹框
 const permQueue = [];   // { id, project, tool, preview, app, tty, host }
-let permShown = null, permHover = false;
+let permShown = null, bubbleHover = false;   // bubbleHover:光标在批准气泡 / 用量面板上
 function showPerm() {
   if (permShown || !permQueue.length || paused) return;
   const p = permShown = permQueue[0];
@@ -1066,7 +1095,7 @@ function dropPerm(id) {
   const i = permQueue.findIndex(p => p.id === id);
   if (i < 0) return;
   permQueue.splice(i, 1);
-  if (permShown?.id === id) { permShown = null; permHover = false; stopTyping(); hideBubble(true); }
+  if (permShown?.id === id) { permShown = null; bubbleHover = false; stopTyping(); hideBubble(true); }
   showPerm();
 }
 window.pet?.onPerm?.(p => { permQueue.push(p); showPerm(); if (permShown && permShown !== p) showPermCount(); });
@@ -1076,6 +1105,8 @@ function showPermCount() {   // 排队的数量变了:更新「后面还有 N �
   else if (n > 0) bubble.insertAdjacentHTML('beforeend', `<i class="more">${t('后面还有 {0} 个', n)}</i>`);
 }
 bubble.addEventListener('click', e => {
+  const row = e.target.closest('.sess[data-sid]');   // 用量面板里的会话
+  if (row) { const s = ccSessions.get(row.dataset.sid); if (s && !jumpSession(s)) say(t('这个会话开得早，还不知道它在哪个窗口<br>重新打开会话后就能跳过去了'), 4); return; }
   const o = e.target.closest('button[data-o]');
   if (o && permShown?.questions) {
     const p = permShown, i = Number(o.dataset.o);
@@ -1357,7 +1388,7 @@ function hitTest(px, py) {
 //    在它身上停留 HOVER_INTENT 秒才变实、可以点和拖,同时停下脚步看着你。
 // 2. 光标在它附近忙活一阵(说明你在那块区域干活):它自己走开,让出地方。
 const HOVER_INTENT = 0.1, SHY_AFTER = 1.2, SHY_COOLDOWN = 6;
-let hoverSince = 0, permSince = 0, interactive = false, passthrough = false;
+let hoverSince = 0, bubbleSince = 0, interactive = false, passthrough = false;
 let nearSince = 0, lastShy = -99;
 window.pet?.onCursor(p => {
   const now = nowSec();
@@ -1368,21 +1399,28 @@ window.pet?.onCursor(p => {
   if (paused) return;
 
   const onPet = hitTest(p.x, p.y);
-  if (dotsTargets.length) {   // 光标在会话小螃蟹或「!」上(多留 6px 余量):显示每个会话的详情
-    const was = dotsHover;
-    dotsHover = dotsTargets.some(el => { const r = el.getBoundingClientRect(); return p.x > r.left - 6 && p.x < r.right + 6 && p.y > r.top - 6 && p.y < r.bottom + 6; });
+  if (tipAnchor) {   // 光标在会话小螃蟹或「!」上(多留 6px 余量),或者在 Clawd 身上停住:显示每个会话的详情(额度在第一行)
+    const was = dotsHover, r = tipAnchor;
+    const onBody = onPet && hovering && now - hoverSince >= HOVER_INTENT;   // 只是路过不算,免得详情一闪
+    // 详情开着时,从螃蟹到详情框之间(连同详情框)都算,光标移过去点某一行时详情不会收起
+    const span = was && dotsTip.classList.contains('show') && (() => { const d = dotsTip.getBoundingClientRect();
+      return { left: Math.min(r.left, d.left), right: Math.max(r.right, d.right), top: Math.min(r.top, d.top), bottom: Math.max(r.bottom, d.bottom) }; })();
+    dotsHover = onBody || (dotList.length && nearRect(r, p.x, p.y, 6)) || (span && nearRect(span, p.x, p.y, 6));
     if (dotsHover && !was) dotsSince = now;
     if (dotsHover && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }   // 在看详情:别走开
   } else dotsHover = false;
-  if (permShown) {   // 光标在批准气泡上:变成可点,Clawd 也别走开
-    const r = bubble.getBoundingClientRect(), was = permHover;
-    permHover = p.x > r.left && p.x < r.right && p.y > r.top && p.y < r.bottom;
-    if (permHover && !was) permSince = now;
-  } else permHover = false;
+  dotsPicked = dotsHover ? dotsPick(p.x, p.y) : null;
+  document.body.classList.toggle('picking', !!dotsPicked);
+  if (permShown || bubbleKind === 'usage') {   // 光标在批准气泡 / 用量面板上:变成可点,Clawd 也别走开
+    const was = bubbleHover;
+    bubbleHover = nearRect(bubble.getBoundingClientRect(), p.x, p.y);
+    if (bubbleHover && !was) bubbleSince = now;
+    if (bubbleHover && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }   // 在看面板:别走开
+  } else bubbleHover = false;
   if (onPet && !hovering) hoverSince = now;
   hovering = onPet;
   // 光标停在小螃蟹上也一样变成可点(点一下跳到会话窗口)
-  const want = action.type === 'drag' || (!passthrough && ((onPet && now - hoverSince >= HOVER_INTENT) || (dotsHover && now - dotsSince >= HOVER_INTENT) || (permHover && now - permSince >= HOVER_INTENT)));
+  const want = action.type === 'drag' || (!passthrough && ((onPet && now - hoverSince >= HOVER_INTENT) || (dotsHover && now - dotsSince >= HOVER_INTENT) || (bubbleHover && now - bubbleSince >= HOVER_INTENT)));
   if (want !== interactive) {
     interactive = want;
     window.pet.setIgnore(!want);
@@ -1391,7 +1429,7 @@ window.pet?.onCursor(p => {
   canvas.classList.toggle('ghost', onPet && !interactive && action.type !== 'drag');
 
   const px = st.x * S, groundY = Hpx - st.y * S;
-  const near = !onPet && !dotsHover && !permHover && st.y < 0.5
+  const near = !onPet && !dotsHover && !bubbleHover && st.y < 0.5
     && Math.abs(p.x - px) < BW * S / 2 + 120
     && p.y > groundY - (LEG_L + BH) * S - 140 && p.y < groundY + 40;
   if (!near) nearSince = 0;
@@ -1998,13 +2036,18 @@ function frame() {
 
   // ---- 10. 头顶血条:格子 = 5 小时额度,旁边的小圆环 = 本周额度。有额度数据就常驻(气泡开着时让位) ----
   const L = usage && usage.limits;
-  if (hovering || dotsHover) { hpHoverUntil = t + 1.5; hpFromDots = dotsHover; }   // 悬停模式:移开后再停 1.5 秒(在看小螃蟹详情时也别收起)
   updateFx(dt);
   updateRiders();
   updatePack(t);
+  // 悬停模式:移开后再停 1.5 秒(在看会话详情时也别收起)。有会话时悬停 Clawd 会弹会话详情,额度在详情里看,
+  // 血条不跟着悬停变化;光标在身上停够了、详情马上要出来(例如刚松手)时也算在看详情,免得单独的额度框先闪一下;拎着时也不变
+  const tipSoon = tipList.length && hovering && nowSec() - hoverSince >= HOVER_INTENT;
+  if (dotsHover || tipSoon || (hovering && !tipList.length && action.type !== 'drag')) { hpHoverUntil = t + 1.5; hpFromDots = dotsHover || tipSoon; }
   const hpOn = hpMode === 'always' || (hpMode === 'hover' && t < hpHoverUntil);
-  hpUsage = hpOn && L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused ? L : null;
-  if (hpUsage && !(dotList.length && (dotsHover || (hpFromDots && t < hpHoverUntil)))) {   // 在看小螃蟹详情时,用量并进详情框里,不单独显示(移开后也别再单独冒出来)
+  // 会话详情开着时,对你说的话 / 自言自语先让开(计时也停住),移开后接着显示完,头顶只留一个框
+  const bubbleYield = dotsHover && tipList.length && (bubbleKind === 'say' || bubbleKind === 'chat');
+  hpUsage = hpOn && L && (L.fiveHour || L.sevenDay) && (!bubbleKind || bubbleYield) && !paused ? L : null;
+  if (hpUsage && action.type !== 'drag' && !(tipList.length && (dotsHover || tipSoon || (hpFromDots && t < hpHoverUntil)))) {   // 拎着时不显示;在看会话详情时,用量并进详情框里,不单独显示(移开后也别再单独冒出来)
     const vert = isClinging();
     const { html, hl } = usageHTML(L, vert, t < hpHoverUntil);   // 鼠标悬停时(移开后 1.5 秒内)把两个百分比都显示出来
     if (badge.dataset.key !== html) { badge.dataset.key = html; badge.innerHTML = html; }
@@ -2023,6 +2066,9 @@ function frame() {
   chatter();
 
   // ---- 11. 头顶气泡跟着 Clawd 走,不超出屏幕 ----
+  if (bubbleKind === 'usage' && bubbleHover) bubbleUntil = Math.max(bubbleUntil, nowSec() + 1.5);   // 正在看用量面板时不收,移开后再停 1.5 秒
+  if (bubbleYield) { bubbleLeft ??= bubbleUntil - nowSec(); bubbleUntil = nowSec() + bubbleLeft; } else bubbleLeft = null;
+  if (bubble.classList.contains('yield') !== !!bubbleYield) bubble.classList.toggle('yield', !!bubbleYield);
   if (bubbleKind && nowSec() > bubbleUntil) hideBubble();
   if (bubbleKind) {
     const bw = bubble.offsetWidth, bh = bubble.offsetHeight, an = petAnchor(), px = an.x;

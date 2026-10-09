@@ -1,6 +1,6 @@
 {
   "name": "clawd-pet",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A tiny 3D Clawd that lives on your macOS desktop and keeps an eye on Claude Code for you.",
   "main": "main.js",
   "private": true,

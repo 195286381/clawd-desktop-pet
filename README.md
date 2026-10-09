@@ -27,7 +27,7 @@
 You kick off a few Claude Code sessions, switch to something else, and then… one of them has been waiting for your approval for 20 minutes. Clawd fixes that, and it's pretty cute while doing it.
 
 <table>
-<tr><td width="230">🦀 <b>Your sessions, on its head</b></td><td>Each running Claude Code session is a little pixel crab riding on Clawd. Red with a <code>!</code> means it needs you. <b>Click a crab to jump straight to that terminal tab.</b></td></tr>
+<tr><td width="230">🦀 <b>Your sessions, on its head</b></td><td>Each running Claude Code session is a little pixel crab riding on Clawd. Red with a <code>!</code> means it needs you. Hover Clawd to see them all; <b>click a crab to jump straight to that terminal tab.</b></td></tr>
 <tr><td width="230">✋ <b>Approve from the desktop</b></td><td>When Claude wants to run a tool, approve it in a bubble above Clawd — or just press <kbd>⌥⌘Y</kbd> / <kbd>⌥⌘N</kbd>.</td></tr>
 <tr><td width="230">🔋 <b>Quota at a glance</b></td><td>A pixel HP bar shows your 5-hour and weekly quota. Clawd's mood follows it: lively when you have plenty, sleepy when it's running out.</td></tr>
 <tr><td width="230">🎉 <b>Reacts to your work</b></td><td>Confetti when tests pass, a rocket jump on <code>git push</code>, a shiver before <code>rm -rf</code>.</td></tr>
@@ -84,7 +84,7 @@ From Clawd's menu (right-click the menu bar icon):
 
 <p align="center"><img src="docs/session-crabs.png" width="490" alt="Session crabs riding on Clawd's head; the red one with a '!' needs your approval. Right: while clinging to the edge they turn with Clawd"></p>
 
-Every active Claude Code session is a pixel crab on Clawd's head (up to 4; more show as +N). Sessions waiting for you come first.
+Every active Claude Code session is a pixel crab on Clawd's head (up to 4; each extra session shows as a pixel dot in its state's color). Sessions waiting for you come first.
 
 | Crab | Meaning |
 |---|---|
@@ -96,8 +96,12 @@ Every active Claude Code session is a pixel crab on Clawd's head (up to 4; more 
 
 A crab also shows how full that session's context is: it gets chubbier at 75% of the way to auto-compact, and chubbier still with a bead of sweat at 90% (hover shows the percentage). The point where Claude Code auto-compacts follows `CLAUDE_CODE_AUTO_COMPACT_WINDOW` if you set it.
 
-- **Hover** the crabs to see each session's title (as shown in the Claude app's sidebar or set with /rename; the project folder if it has none), what it's doing and for how long (the quota bar joins this box as its top row). Clawd stays put while you look.
-- **Click a crab** to jump to that session: iTerm / Terminal switch to the exact tab (macOS asks once for Automation permission); the Claude app opens that exact session; VS Code, Ghostty and others are brought to the front. Sessions started before you connected Clawd need to be reopened once.
+- **Hover** Clawd or the crabs to open the session box: every session, including ones that finished and are waiting for your reply, with its title (as shown in the Claude app's sidebar or set with /rename; the project folder if it has none), what it's doing and for how long. Each row starts with a little crab in that session's color, and your quota sits in the top row. With no sessions you just get the quota bar, and nothing pops up while you're carrying Clawd. If Clawd is in the middle of saying something, its bubble steps aside while the box is open and finishes afterwards.
+- Clawd stays put while you look. Move the cursor into the box and the crab for the row you point at lifts up and hops.
+
+<p align="center"><img src="docs/session-details.png" width="351" alt="The session box above Clawd: the quota on top, then one row per session with a pixel crab in its state's color, what it's doing and for how long"></p>
+
+- **Click a crab, or a row in that box** (including sessions shown as dots), to jump to that session: iTerm / Terminal switch to the exact tab (macOS asks once for Automation permission); the Claude app opens that exact session; VS Code, Ghostty and others are brought to the front. Sessions started before you connected Clawd need to be reopened once.
 - **Restarting Clawd** (an update, launch at login) doesn't lose sessions that are mid-task: on launch it reads session logs written in the last 30 minutes and brings back the ones still running a tool or still thinking. Until such a session sends its next event, clicking its crab only brings its app to the front.
 - Finished and errored crabs leave after a minute — and they don't just vanish:
 
@@ -161,14 +165,15 @@ Click Clawd (or **View usage** 查看用量) for a pixel usage panel (sample dat
 |---|---|
 | Remaining % and reset time of the 5-hour and weekly quotas | The official `claude -p "/usage"` — the same numbers as `/usage` in Claude Code |
 | Cost and tokens for today, the last 7 days and the current 5-hour window, plus per-model share | Your local session logs in `~/.claude/projects/`, priced at Anthropic API rates |
-| Recent sessions (up to 5) with their state and duration | Claude Code hooks, updated every second while the panel is open |
+| Recent sessions (up to 5) with their state and duration; click one to jump to it | Claude Code hooks, updated every second while the panel is open |
 
 - The quota check **doesn't call a model, use quota, or leave a session behind**. It runs at launch and every 5 minutes (opening the panel refreshes data older than a minute)
 - Cost is an **estimate** at API prices — on a subscription you aren't billed this way
 - Subscription quotas exist only on Pro / Max; with an API key, only the cost estimate is shown
+- The panel stays open while the cursor is on it
 - **Forecast:** from your recent pace, the panel says "used up in about 40 min" or "will last until the reset", and Clawd warns you once if the quota looks set to run out within 45 minutes
 
-**Quota bar.** The 10 cells above Clawd are the 5-hour quota; the small ring is the weekly quota. Below 20% the percentage appears, below 10% it blinks. Choose **Always show** / **Show on hover** / **Off** under **Appearance → Quota bar** (外观 → 血条).
+**Quota bar.** The 10 cells above Clawd are the 5-hour quota; the small ring is the weekly quota. Below 20% the percentage appears, below 10% it blinks; hovering shows both percentages. When you have sessions, hovering Clawd shows the quota in the session box instead. Choose **Always show** / **Show on hover** / **Off** under **Appearance → Quota bar** (外观 → 血条).
 
 **Mood follows your quota** (whichever of the two is lower):
 
