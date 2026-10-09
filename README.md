@@ -142,7 +142,7 @@ Each reaction plays at most once every 15 seconds, and not while Clawd is clingi
 
 Off by default — turn it on under **Claude Code → Approve permissions on Clawd** (在 Clawd 上批准权限); it applies to sessions you open afterwards.
 
-When Claude needs approval to use a tool and that session's window isn't in front, Clawd pops up a bubble showing the project and the tool (the full command for Bash), with **Allow / Deny / Go to terminal**. Press <kbd>⌥⌘Y</kbd> to allow or <kbd>⌥⌘N</kbd> to deny (these keys are only taken while a request is waiting). Several requests come one at a time. If you're already looking at that session, Clawd stays out of it; if you don't answer within 60 seconds, or Clawd is hidden or in full click-through, the request goes back to Claude Code's usual prompt.
+When Claude needs approval to use a tool and that session's window isn't in front, Clawd pops up a bubble showing the project and the tool (the full command for Bash), with **Allow / Deny / Go to terminal**. Press <kbd>⌥⌘Y</kbd> to allow or <kbd>⌥⌘N</kbd> to deny (these keys are only taken while a request is waiting). Several requests come one at a time. When Claude asks you a multiple-choice question, the bubble shows the question and its options instead: click an option, pick several and press **OK** for multi-select questions, or type your own answer in the box at the bottom and press Return. If you're already looking at that session, Clawd stays out of it; if you don't answer within 60 seconds, or Clawd is hidden or in full click-through, the request goes back to Claude Code's usual prompt.
 
 ### How the connection works
 

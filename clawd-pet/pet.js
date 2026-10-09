@@ -1007,18 +1007,61 @@ function showPerm() {
   if (permShown || !permQueue.length || paused) return;
   const p = permShown = permQueue[0];
   if (bubbleKind === 'usage') hideBubble();
-  say(t('🙋 <b>{0}</b> 要用 <b>{1}</b>', esc(p.title || p.project || t('会话')), esc(p.tool)) + (p.preview ? `<code>${esc(p.preview)}</code>` : '')
-    + `<div class="btns"><button data-d="allow">${t('允许')}<small>⌥⌘Y</small></button><button data-d="deny">${t('拒绝')}<small>⌥⌘N</small></button><button data-d="pass">${t('去终端处理')}</button></div>`
-    + (permQueue.length > 1 ? `<i class="more">${t('后面还有 {0} 个', permQueue.length - 1)}</i>` : ''), 3600, 'perm');
-  bubble.classList.add('say');   // 外观和对你说话的气泡一样
+  showPermBubble(p);
   sfx('ask');
   if (!isClinging() && !['drag', 'leave'].includes(action.type)) setAction({ type: 'wave', dur: 2.4 });
 }
+function showPermBubble(p) {
+  const name = esc(p.title || p.project || t('会话'));
+  say((p.questions ? questionHtml(p, name)
+    : t('🙋 <b>{0}</b> 要用 <b>{1}</b>', name, esc(p.tool)) + (p.preview ? `<code>${esc(p.preview)}</code>` : '')
+      + `<div class="btns"><button data-d="allow">${t('允许')}<small>⌥⌘Y</small></button><button data-d="deny">${t('拒绝')}<small>⌥⌘N</small></button><button data-d="pass">${t('去终端处理')}</button></div>`)
+    + (permQueue.length > 1 ? `<i class="more">${t('后面还有 {0} 个', permQueue.length - 1)}</i>` : ''), 3600, 'perm');
+  bubble.classList.add('say');   // 外观和对你说话的气泡一样
+}
+// Claude 出的选择题(AskUserQuestion):一次一题,点选项就答;多选题点几个再按「确定」;最下面可以自己写
+function questionHtml(p, name) {
+  p.qi ??= 0; p.answers ??= {}; p.picked = new Set();
+  const q = p.questions[p.qi], n = p.questions.length;
+  return t('🙋 <b>{0}</b> 问你', name) + (n > 1 ? ` <i class="qn">${p.qi + 1}/${n}</i>` : '')
+    + `<div class="q">${esc(q.question)}</div><div class="opts">`
+    + q.options.map((o, i) => `<button data-o="${i}">${i + 1}. ${esc(o.label)}${o.description ? `<small>${esc(o.description)}</small>` : ''}</button>`).join('')
+    + `<input class="other" placeholder="${esc(t('其他，自己写…'))}" spellcheck="false"></div>`
+    + `<div class="btns">${q.multi ? `<button data-d="ok">${t('确定')}</button>` : ''}<button data-d="pass">${t('去终端处理')}</button></div>`;
+}
+function answerQuestion(v) {
+  const p = permShown;
+  p.answers[p.questions[p.qi].question] = v;
+  if (++p.qi < p.questions.length) { stopTyping(); showPermBubble(p); sfx('pop'); return; }
+  window.pet?.permDecision(p.id, 'allow', p.answers);
+  sfx('pop');
+  dropPerm(p.id);
+}
+function pickedAnswer() {   // 多选题:选中的选项加上自己写的,用逗号连起来
+  const p = permShown, q = p.questions[p.qi], other = bubble.querySelector('.other')?.value.trim();
+  return [...q.options.filter((_, i) => p.picked.has(i)).map(o => o.label), ...(other ? [other] : [])].join(', ');
+}
+let typing = false;
+function stopTyping() { if (typing) { typing = false; window.pet?.permTyping(false); } }
+bubble.addEventListener('pointerdown', e => {   // 窗口平时拿不到键盘:点输入框时才临时要过来
+  const el = e.target.closest('.other');
+  if (!el || typing) return;
+  typing = true; window.pet?.permTyping(true);
+  setTimeout(() => el.focus(), 50);
+});
+bubble.addEventListener('focusout', e => { if (e.target.matches('.other')) stopTyping(); });
+bubble.addEventListener('keydown', e => {
+  if (!e.target.matches('.other')) return;
+  if (e.key === 'Escape') e.target.blur();
+  if (e.key !== 'Enter' || e.isComposing) return;   // 输入法选字时的回车不算
+  const p = permShown, v = p.questions[p.qi].multi ? pickedAnswer() : e.target.value.trim();
+  if (v) answerQuestion(v);
+});
 function dropPerm(id) {
   const i = permQueue.findIndex(p => p.id === id);
   if (i < 0) return;
   permQueue.splice(i, 1);
-  if (permShown?.id === id) { permShown = null; permHover = false; hideBubble(true); }
+  if (permShown?.id === id) { permShown = null; permHover = false; stopTyping(); hideBubble(true); }
   showPerm();
 }
 window.pet?.onPerm?.(p => { permQueue.push(p); showPerm(); if (permShown && permShown !== p) showPermCount(); });
@@ -1028,11 +1071,20 @@ function showPermCount() {   // 排队的数量变了:更新「后面还有 N �
   else if (n > 0) bubble.insertAdjacentHTML('beforeend', `<i class="more">${t('后面还有 {0} 个', n)}</i>`);
 }
 bubble.addEventListener('click', e => {
+  const o = e.target.closest('button[data-o]');
+  if (o && permShown?.questions) {
+    const p = permShown, i = Number(o.dataset.o);
+    if (!p.questions[p.qi].multi) return answerQuestion(p.questions[p.qi].options[i].label);
+    p.picked.has(i) ? p.picked.delete(i) : p.picked.add(i);
+    o.classList.toggle('on', p.picked.has(i));
+    return sfx('poke');
+  }
   const b = e.target.closest('button[data-d]');
+  if (b?.dataset.d === 'ok') { const v = pickedAnswer(); return v && answerQuestion(v); }
   if (b) decidePerm(b.dataset.d);
 });
 function decidePerm(d) {   // 点按钮或按快捷键
-  if (!permShown) return;
+  if (!permShown || (permShown.questions && d !== 'pass')) return;   // 选择题没有「允许 / 拒绝」,⌥⌘Y / ⌥⌘N 不管用
   const p = permShown;
   window.pet?.permDecision(p.id, d);
   sfx(d === 'allow' ? 'pop' : 'poke');
