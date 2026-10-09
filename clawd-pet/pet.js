@@ -647,6 +647,7 @@ function ccAlert(html, secs, jump) {
 }
 window.pet?.onClaude?.(ev => {
   const sid = ev.session || '?', now = Date.now();
+  if (ev.event === 'Restore' && ccSessions.has(sid)) return;   // 启动时补回的,已经收到它的新事件就不用了
   ccHooks = true;   // 收到过事件就说明 hooks 已经连上了
   const wasWorking = ccWorking();
   const x = ccSessions.get(sid) || { state: 'thinking', tool: '', detail: '', project: '', since: now, started: now, last: now };
@@ -706,6 +707,7 @@ window.pet?.onClaude?.(ev => {
       break;
     }
     case 'PreCompact': x.compacting = now; break;
+    case 'Restore': to(ev.state); x.tool = ev.tool; x.detail = ev.detail; break;   // Clawd 重启前就在跑的会话
     case 'SessionEnd': ccSessions.delete(sid); break;
   }
   if (wasWorking !== ccWorking() && action.type === 'rest') delete action.prop;   // 状态一变,马上拿起 / 放下电脑

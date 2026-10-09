@@ -273,7 +273,7 @@ class UsageTracker {
   }
 }
 
-module.exports = { UsageTracker, fetchLimits, parseUsage, _eta: { recordSample, etaMinutes } };   // _eta 只给自测用
+module.exports = { UsageTracker, fetchLimits, parseUsage, projectDirs, listJsonl, _eta: { recordSample, etaMinutes } };   // _eta 只给自测用
 
 // 命令行自测:node usage.js
 if (require.main === module) {

@@ -98,6 +98,7 @@ A crab also shows how full that session's context is: it gets chubbier at 75% of
 
 - **Hover** the crabs to see each session's title (as shown in the Claude app's sidebar or set with /rename; the project folder if it has none), what it's doing and for how long (the quota bar joins this box as its top row). Clawd stays put while you look.
 - **Click a crab** to jump to that session: iTerm / Terminal switch to the exact tab (macOS asks once for Automation permission); the Claude app opens that exact session; VS Code, Ghostty and others are brought to the front. Sessions started before you connected Clawd need to be reopened once.
+- **Restarting Clawd** (an update, launch at login) doesn't lose sessions that are mid-task: on launch it reads session logs written in the last 30 minutes and brings back the ones still running a tool or still thinking. Until such a session sends its next event, clicking its crab only brings its app to the front.
 - Finished and errored crabs leave after a minute — and they don't just vanish:
 
 <p align="center"><img src="docs/crabs-leave.gif" width="480" alt="A green crab hops off Clawd's head, waves and crawls away; a red crab flips belly-up, wiggles, then crawls away"></p>
