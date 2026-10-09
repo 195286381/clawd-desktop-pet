@@ -7,7 +7,7 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 const { execFile } = require('child_process');
-const { UsageTracker, fetchLimits } = require('./usage');
+const { UsageTracker, fetchLimits, projectDirs, listJsonl } = require('./usage');
 
 app.setName('Clawd');
 
@@ -249,6 +249,52 @@ http.createServer((req, res) => {
   });
 }).on('error', e => console.error('Clawd hooks 接口启动失败', e.message)).listen(HOOK_PORT, '127.0.0.1');
 
+// ---------- 重启后补回正在跑的会话 ----------
+// 会话只记在内存里:Clawd 重启(更新、开机自启、页面重载)后,正在跑长命令的会话要等它下一个事件才会出现。
+// 页面载入后扫一遍最近 30 分钟写过的会话记录,停在「调用工具还没出结果」或「Claude 还没答完」的当作正在干活补上。
+// 会话记录里只看得出是不是 Claude App 里开的,点这只小螃蟹跳不到具体标签页 / 会话,等它下一个事件来了就准了
+function runningStep(text) {   // 会话停在哪一步:{ state, name, input, sid, cwd } 或 null(这一轮已经结束)
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (!/"type":"(user|assistant|system)"/.test(l)) continue;
+    let d; try { d = JSON.parse(l); } catch { continue; }   // 第一行可能是被截断的半行
+    if (d.isSidechain || d.isMeta) continue;
+    if (d.type === 'system') { if (['stop_hook_summary', 'turn_duration', 'api_error', 'local_command'].includes(d.subtype)) return null; continue; }
+    const m = d.message, c = m?.content, at = { sid: d.sessionId, cwd: d.cwd };
+    if (d.type === 'assistant') {
+      if (m?.stop_reason && m.stop_reason !== 'tool_use') return null;   // end_turn 等:这一轮答完了
+      const b = Array.isArray(c) && c[c.length - 1];
+      return b && b.type === 'tool_use' ? { state: 'tool', name: b.name, input: b.input, ...at } : { state: 'thinking', ...at };
+    }
+    if (d.type !== 'user') continue;
+    const txt = typeof c === 'string' ? c : Array.isArray(c) ? c.map(b => (typeof b.content === 'string' ? b.content : b.text || '')).join('') : '';
+    if (/^\s*(<command-|<local-command|<bash-|\[Request interrupted)/.test(txt)) return null;   // 本地命令 / 你按了 Esc
+    return { state: 'thinking', ...at };   // 刚发出指令,或工具结果回来了 Claude 还在想
+  }
+  return null;
+}
+async function restoreSessions() {
+  const cutoff = Date.now() - 30 * 60e3;
+  for (const file of projectDirs().flatMap(d => listJsonl(d))) {
+    if (!/^[0-9a-f-]{36}\.jsonl$/.test(path.basename(file))) continue;   // 子助手的记录不算
+    try {
+      const { size, mtimeMs } = fs.statSync(file);
+      if (mtimeMs < cutoff) continue;
+      const fh = await fs.promises.open(file, 'r'), len = Math.min(size, 1 << 20);
+      let text;
+      try { text = (await fh.read(Buffer.alloc(len), 0, len, size - len)).buffer.toString('utf8'); } finally { await fh.close(); }
+      const step = runningStep(text);
+      if (!step || !step.sid) continue;
+      const { name, ctx } = await sessionInfo(step.sid, file);
+      if (win && !win.isDestroyed()) win.webContents.send('cc', {
+        event: 'Restore', state: step.state, session: step.sid, project: step.cwd ? path.basename(step.cwd) : '', title: name, ctx, at: Date.now(),
+        tool: toolName(step.name), detail: toolDetail(step.name, step.input),
+        app: text.includes('"entrypoint":"claude-desktop"') ? 'com.anthropic.claudefordesktop' : '', tty: '', host: '' });
+    } catch (e) { console.error('补回会话失败', file, e.message); }
+  }
+}
+
 // ---------- 日报 / 周报 ----------
 // 按天记下:哪些会话发过指令、Claude 干活的时长(发出指令 → 回复完成)和花在哪个项目、测试通过 / commit / push 几次。
 // 存在 userData/stats.json,只留最近 14 天
@@ -481,6 +527,7 @@ function createWindow() {
     send('power:' + (powerMonitor.isOnBatteryPower() ? 'battery' : 'ac'));
     syncPrefs();
     pushUsage(); refreshLimits(true);
+    restoreSessions();
   });
 
   // 持续把光标位置(窗口坐标)发给渲染进程:用于眼睛跟随,以及判断光标是否在 Clawd 身上。
