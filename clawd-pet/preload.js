@@ -13,4 +13,6 @@ contextBridge.exposeInMainWorld('pet', {
   permTyping: (on) => ipcRenderer.send('perm-typing', on),
   requestUsage: () => ipcRenderer.send('request-usage'),
   setClinging: (v) => ipcRenderer.send('clinging', v),
+  stat: (kind) => ipcRenderer.send('stat', kind),   // 日报计数:测试通过 / commit / push
+  reportShown: (day) => ipcRenderer.send('report-shown', day),
 });

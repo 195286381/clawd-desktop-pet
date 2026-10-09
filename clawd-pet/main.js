@@ -67,25 +67,27 @@ let breakMin = BREAKS.some(([, v]) => v === st0.breakMin) ? st0.breakMin : 60;
 let holiday = st0.holiday !== false;
 let ccNotifyDone = st0.ccNotifyDone !== false, ccNotifyAsk = st0.ccNotifyAsk !== false;
 let ccCrabs = st0.ccCrabs !== false;   // 头顶的会话小螃蟹,默认开
+let ccReport = st0.ccReport !== false;   // 下班时递一张小报(周五是周报),默认开
 let powerSave = st0.powerSave === true, sound = st0.sound === true;   // 省电模式(帧率上限 30)、音效:默认都关
 function syncPrefs() {
   send('chat:' + chatLevel); send('break:' + breakMin); send('holiday:' + (holiday ? 'on' : 'off'));
   send('power-save:' + (powerSave ? 'on' : 'off')); send('fade:' + hoverFade); send('sound:' + (sound ? 'on' : 'off'));
   send('cc-notify:' + (ccNotifyDone ? 1 : 0) + (ccNotifyAsk ? 1 : 0)); send('cc-hooks:' + (ccHooked() ? 'on' : 'off')); send('crabs:' + (ccCrabs ? 'on' : 'off'));
+  send('report:' + (ccReport ? 'on' : 'off'));
 }
 function setPref(key, v) {
   ({ chatLevel: () => (chatLevel = v), breakMin: () => (breakMin = v), holiday: () => (holiday = v),
-     ccNotifyDone: () => (ccNotifyDone = v), ccNotifyAsk: () => (ccNotifyAsk = v), ccCrabs: () => (ccCrabs = v),
+     ccNotifyDone: () => (ccNotifyDone = v), ccNotifyAsk: () => (ccNotifyAsk = v), ccCrabs: () => (ccCrabs = v), ccReport: () => (ccReport = v),
      powerSave: () => (powerSave = v), sound: () => (sound = v), hoverFade: () => (hoverFade = v) })[key]();
   saveSetting(key, v); syncPrefs(); refreshMenus();
 }
 
 // ---------- 和 Claude Code 联动 ----------
 // Clawd 在本机 127.0.0.1 开一个小接口;Claude Code 的 hooks(发出指令 / 调用工具 / 工具失败 / 回复完成 /
-// 出错停下 / 需要确认 / 会话结束)用 curl 把事件发过来。hooks 都是 async(后台跑),不拖慢 Claude Code;
+// 出错停下 / 需要确认 / 压缩上下文 / 会话结束)用 curl 把事件发过来。hooks 都是 async(后台跑),不拖慢 Claude Code;
 // Clawd 没开着时 curl 静默失败,也不影响。
 const HOOK_PORT = (!app.isPackaged && Number(process.env.CLAWD_HOOK_PORT)) || 47615;   // 开发自测可换端口,避免和正在运行的 Clawd 冲突
-const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'SessionEnd'];
+const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'PreCompact', 'PostCompact', 'SessionEnd'];
 const HOOK_MARK = 'clawd-hook';
 // 顺带告诉 Clawd 这个会话开在哪个 App 里(启动它的 App 的 bundle id)、哪个终端(tty),
 // 以及在 Claude App 里的会话 id,点小螃蟹时好跳过去
@@ -174,15 +176,38 @@ function toolDetail(n, input) {
     default: return '';
   }
 }
+// 上下文用了多少:最后一条主对话 assistant 消息的输入 + 输出 token(含缓存);在那之后压缩过,就用压缩后的大小
+function contextUsed(text) {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (l.includes('"subtype":"compact_boundary"')) { const m = l.match(/"postTokens":(\d+)/); return m ? Number(m[1]) : 0; }
+    if (!l.includes('"usage"') || !l.includes('"type":"assistant"')) continue;
+    let d; try { d = JSON.parse(l); } catch { continue; }   // 第一行可能是被截断的半行
+    const m = d.message, u = m?.usage;
+    if (d.type !== 'assistant' || d.isSidechain || !u || m.model === '<synthetic>') continue;
+    return (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0);
+  }
+  return null;
+}
+// 上下文的「满」= 自动压缩的位置。窗口优先看 CLAUDE_CODE_AUTO_COMPACT_WINDOW(环境变量或 Claude Code 配置里的 env);
+// 没设就按 200k,已经超过 200k 的会话说明是 1M 窗口。Claude Code 会在窗口前留一段余量就开始压缩(实测 500k 窗口在 ~470k 时压缩)
+const COMPACT_MARGIN = 33e3;
+function contextFill(used) {
+  let w = Number(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
+  if (!(w > 0)) try { w = Number(readCC().env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW); } catch { w = 0; }
+  if (!(w > 0)) w = used > 200e3 ? 1e6 : 200e3;
+  return Math.round(used / (w - COMPACT_MARGIN) * 100) / 100;
+}
 // 会话标题(Claude App 侧边栏 / /rename 起的名字,没有就用自动生成的):列表里优先显示它,比项目目录名好认。
-// Claude Code 会把标题反复追加到会话记录里,所以只读文件末尾一段
-const titles = new Map();   // session → { name, at }
+// 顺带读出上下文用了多少(小螃蟹快满时变胖)。Claude Code 会把标题反复追加到会话记录里,所以只读文件末尾一段
+const titles = new Map();   // session → { name, ctx, at }
 let ccQueue = Promise.resolve();
-function sessionTitle(sid, file) {
+function sessionInfo(sid, file, fresh) {
   file = String(file || '');
   const c = titles.get(sid);
-  if (!sid || !path.isAbsolute(file) || !file.endsWith('.jsonl')) return Promise.resolve(c?.name || '');
-  if (c && Date.now() - c.at < 10e3) return Promise.resolve(c.name);   // 事件很密,10 秒内不重复读
+  if (!sid || !path.isAbsolute(file) || !file.endsWith('.jsonl')) return Promise.resolve(c || { name: '', ctx: null });
+  if (c && !fresh && Date.now() - c.at < 10e3) return Promise.resolve(c);   // 事件很密,10 秒内不重复读(回复完 / 压缩完要马上读)
   return fs.promises.open(file, 'r').then(async fh => {
     try {
       const { size } = await fh.stat(), len = Math.min(size, 1 << 20);
@@ -190,10 +215,12 @@ function sessionTitle(sid, file) {
       const text = buffer.toString('utf8'), last = re => [...text.matchAll(re)].pop()?.[1];
       const raw = last(/"type":"custom-title","customTitle":("(?:[^"\\]|\\.)*")/g) || last(/"type":"ai-title","aiTitle":("(?:[^"\\]|\\.)*")/g);
       const name = raw ? clip(JSON.parse(raw), 40) : c?.name || '';
-      titles.set(sid, { name, at: Date.now() });
-      return name;
+      const used = contextUsed(text);
+      const info = { name, ctx: used === null ? c?.ctx ?? null : contextFill(used), at: Date.now() };
+      titles.set(sid, info);
+      return info;
     } finally { fh.close(); }
-  }).catch(() => c?.name || '');
+  }).catch(() => c || { name: '', ctx: null });
 }
 http.createServer((req, res) => {
   if (req.method !== 'POST' || (req.url !== '/hook' && req.url !== '/permission')) { res.writeHead(404); return res.end(); }
@@ -216,10 +243,61 @@ http.createServer((req, res) => {
       tool: toolName(d.tool_name), detail: toolDetail(d.tool_name, d.tool_input), error: clip(d.error, 60),
       cmd: d.tool_name === 'Bash' ? String(d.tool_input?.command || '').replace(/\s+/g, ' ').slice(0, 500) : '',   // 认出跑测试 / git push / rm -rf,Clawd 做出反应
     };
-    ccQueue = ccQueue.then(() => sessionTitle(ev.session, d.transcript_path))   // 排队发,读标题再慢也不打乱事件顺序
-      .then(title => { if (win && !win.isDestroyed()) win.webContents.send('cc', { ...where, ...ev, title }); });
+    countHook(ev);
+    ccQueue = ccQueue.then(() => sessionInfo(ev.session, d.transcript_path, ev.event === 'Stop' || ev.event === 'PostCompact'))   // 排队发,读标题再慢也不打乱事件顺序
+      .then(({ name, ctx }) => { if (win && !win.isDestroyed()) win.webContents.send('cc', { ...where, ...ev, title: name, ctx }); });
   });
 }).on('error', e => console.error('Clawd hooks 接口启动失败', e.message)).listen(HOOK_PORT, '127.0.0.1');
+
+// ---------- 日报 / 周报 ----------
+// 按天记下:哪些会话发过指令、Claude 干活的时长(发出指令 → 回复完成)和花在哪个项目、测试通过 / commit / push 几次。
+// 存在 userData/stats.json,只留最近 14 天
+const statsFile = () => path.join(app.getPath('userData'), 'stats.json');
+const stats = (() => { try { return JSON.parse(fs.readFileSync(statsFile(), 'utf8')); } catch { return {}; } })();
+let statsTimer = null;
+const dayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function statDay() {   // 今天的记录(要改它,所以顺手安排 2 秒后写盘)
+  const k = dayKey();
+  if (!stats[k]) {
+    stats[k] = { sessions: {}, workMs: 0, projects: {}, test: 0, commit: 0, push: 0 };
+    for (const old of Object.keys(stats).sort().slice(0, -14)) delete stats[old];
+  }
+  clearTimeout(statsTimer);
+  statsTimer = setTimeout(() => { try { fs.writeFileSync(statsFile(), JSON.stringify(stats)); } catch (e) { console.error('保存统计失败', e); } }, 2000);
+  return stats[k];
+}
+const turnStart = new Map();   // session → 这一轮发出指令的时间
+function countHook(ev) {
+  if (!ev.session) return;
+  if (ev.event === 'UserPromptSubmit') { statDay().sessions[ev.session] = 1; turnStart.set(ev.session, ev.at); }
+  else if ((ev.event === 'Stop' || ev.event === 'StopFailure') && turnStart.has(ev.session)) {
+    const ms = Math.min(ev.at - turnStart.get(ev.session), 6 * 3600e3), d = statDay();   // 跨天的一轮算在结束那天
+    turnStart.delete(ev.session);
+    d.workMs += ms;
+    if (ev.project) d.projects[ev.project] = (d.projects[ev.project] || 0) + ms;
+  }
+}
+ipcMain.on('stat', (_e, kind) => { if (['test', 'commit', 'push'].includes(kind)) statDay()[kind]++; });   // 页面认出的命令:测试通过 / commit / push
+function report(from) {   // 从 from 那天(含)到今天的汇总
+  const r = { sessions: 0, workMs: 0, test: 0, commit: 0, push: 0, top: '' }, ids = new Set(), proj = {}, since = dayKey(from);
+  for (const [k, d] of Object.entries(stats)) {
+    if (k < since) continue;
+    Object.keys(d.sessions).forEach(id => ids.add(id));
+    r.workMs += d.workMs; r.test += d.test; r.commit += d.commit; r.push += d.push;
+    for (const [p, ms] of Object.entries(d.projects)) proj[p] = (proj[p] || 0) + ms;
+  }
+  r.sessions = ids.size;
+  r.top = Object.entries(proj).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  return r;
+}
+function reports() {   // 今天、近 7 天(用量面板)、本周一起(周五的周报),加上花费
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const last7 = new Date(today); last7.setDate(today.getDate() - 6);
+  const monday = new Date(today); monday.setDate(today.getDate() - (today.getDay() + 6) % 7);
+  return { today: report(today), last7: report(last7), week: { ...report(monday), cost: tracker.costSince(monday.getTime()) },
+    day: dayKey(), shown: loadSettings().reportShown || '' };
+}
+ipcMain.on('report-shown', (_e, day) => saveSetting('reportShown', String(day)));
 
 // ---------- 在 Clawd 上批准权限 ----------
 // 会话所在的终端 / App 正在最前面(你正看着它):不拦,输出空,终端立刻照常弹框。
@@ -303,6 +381,7 @@ function pushUsage() {
   try {
     tracker.scan();
     const sum = tracker.summary();
+    sum.report = reports();
     // 开发自测:CLAWD_FAKE_QUOTA=7 npm start —— 假装 5 小时额度只剩 7%(只在未打包时生效)
     const fakeRaw = app.isPackaged ? '' : (process.env.CLAWD_FAKE_QUOTA || '');
     const rem = fakeRaw.trim() === '' ? NaN : Number(fakeRaw);
@@ -320,6 +399,10 @@ function pushUsage() {
         block: { cost: 9.75, tokens: 1.7e7, start: now - 2 * 3600e3, end: now + 3 * 3600e3, remainingMin: 168, burnPerHour: 4.9 },
         byModel: { 'opus-5-5': { cost: 10.9, tokens: 2e7 }, 'sonnet-5-5': { cost: 1.5, tokens: 3.6e6 } },
         lastActive: now - 3 * 3600e3, streakStart: null,   // 示例里不算"正在用",免得到处抱电脑
+        report: { day: 'demo', shown: 'demo',
+          today: { sessions: 7, workMs: 312 * 60e3, test: 12, commit: 4, push: 2, top: 'clawd-pet' },
+          last7: { sessions: 31, workMs: 1490 * 60e3, test: 58, commit: 23, push: 11, top: 'clawd-pet' },
+          week: { sessions: 24, workMs: 1150 * 60e3, test: 41, commit: 17, push: 8, top: 'clawd-pet', cost: 46.2 } },
         limits: { fiveHour: { used: 58, remaining: 42, resetsAt: now + 168 * 60e3, etaMin: 95 },
           sevenDay: { used: 27, remaining: 73, resetsAt: now + 2.6 * 864e5 }, others: [], savedAt: now },
       });
@@ -544,6 +627,7 @@ function menuTemplate({ forDock = false } = {}) {
       { label: t('需要确认 / 等你输入时提醒'), type: 'checkbox', checked: ccNotifyAsk, enabled: ccHooked(), click: (item) => setPref('ccNotifyAsk', item.checked) },
       { label: t('在 Clawd 上批准权限'), type: 'checkbox', checked: ccApproveOn(), enabled: ccHooked(), click: (item) => toggleApprove(item.checked) },
       { label: t('头顶显示会话小螃蟹'), type: 'checkbox', checked: ccCrabs, enabled: ccHooked(), click: (item) => setPref('ccCrabs', item.checked) },
+      { label: t('下班时递日报(周五是周报)'), type: 'checkbox', checked: ccReport, enabled: ccHooked(), click: (item) => setPref('ccReport', item.checked) },
     ] },
     { label: t('外观'), submenu: [
       { label: t('大小'), submenu: SIZES.map(([name, v]) => ({ label: t(name), type: 'radio', checked: petScale === v, click: () => setScale(v) })) },
@@ -586,8 +670,10 @@ app.whenReady().then(() => {
   //   CLAWD_SELFTEST=1     —— 4 秒后收起,8 秒后放出
   //   CLAWD_SELFTEST=usage —— 3 秒后弹出用量气泡
   //   CLAWD_SELFTEST=cling —— 3 秒后贴到屏幕边上
+  //   CLAWD_SELFTEST=report / report-week —— 3 秒后递日报 / 周报
   const selftest = !app.isPackaged && process.env.CLAWD_SELFTEST;
   if (selftest === 'usage') setTimeout(() => { pushUsage(); send('usage'); }, 3000);
+  else if (selftest === 'report' || selftest === 'report-week') setTimeout(() => { pushUsage(); send(selftest === 'report' ? 'show-report:day' : 'show-report:week'); }, 3000);
   else if (selftest === 'cling') setTimeout(() => send('cling'), 3000);
   else if (selftest) {
     setTimeout(minimize, 4000);

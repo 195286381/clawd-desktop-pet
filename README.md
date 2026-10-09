@@ -94,6 +94,8 @@ Every active Claude Code session is a pixel crab on Clawd's head (up to 4; more 
 | Green | Just finished |
 | Red | Stopped with an error |
 
+A crab also shows how full that session's context is: it gets chubbier at 75% of the way to auto-compact, and chubbier still with a bead of sweat at 90% (hover shows the percentage). The point where Claude Code auto-compacts follows `CLAUDE_CODE_AUTO_COMPACT_WINDOW` if you set it.
+
 - **Hover** the crabs to see each session's title (as shown in the Claude app's sidebar or set with /rename; the project folder if it has none), what it's doing and for how long (the quota bar joins this box as its top row). Clawd stays put while you look.
 - **Click a crab** to jump to that session: iTerm / Terminal switch to the exact tab (macOS asks once for Automation permission); the Claude app opens that exact session; VS Code, Ghostty and others are brought to the front. Sessions started before you connected Clawd need to be reopened once.
 - Finished and errored crabs leave after a minute — and they don't just vanish:
@@ -112,6 +114,8 @@ In **newly started** Claude Code sessions:
 - **Still waiting** — after 3 minutes it waves again, then every 5 minutes, at most 3 times
 - **A tool call fails** — Clawd goes `x x` for a moment (no bubble; small failures are common)
 - **Claude stops with an error** — Clawd cries and tells you "⚠️ Claude stopped with an error"
+- **Context almost full** (90%) — once per session: "🦀 Context is almost full (92%), auto-compact is coming"
+- **Compacting context** — an open cardboard box appears over Clawd's head and sheets of paper fly in; when compaction is done the box gets taped shut, Clawd hops, and the chubby crab slims back down
 - **While you were away** — after 5 idle minutes Clawd lies down to sleep; when you're back it sums up what you missed, e.g. "While you were away: 🙋 api-server needs your approval (waiting 12 min) / ✅ clawd finished"
 
 ### Reactions
@@ -177,6 +181,8 @@ Click Clawd (or **View usage** 查看用量) for a pixel usage panel (sample dat
 
 When the quota resets, it dances to celebrate. Without quota data (API key), the first three moods use the 5-hour cost estimate ($8 / $25). Thresholds are the `LEVEL_*` constants in [`clawd-pet/pet.js`](clawd-pet/pet.js).
 
+**Daily recap.** After 6 PM, the first time Clawd is free it hands you a little report for the day: sessions, how long Claude worked, tests passed, commits and pushes, estimated cost and the busiest project. On Fridays it covers the week (Monday to today). The usage panel shows the same counts under **Today** and **Last 7 days**. Counts come from the hooks and are kept for 14 days in `stats.json` next to the settings. Turn it off under **Claude Code → Daily recap after work (weekly on Fridays)**.
+
 **Break reminders.** After 60 minutes of continuous Claude Code use (configurable), Clawd stretches and nudges you to get up; a 10-minute break resets the timer.
 
 ---
@@ -210,7 +216,7 @@ Clawd has icons in the menu bar and the Dock (you can turn the Dock icon off). L
 - Hide / show Clawd, View usage
 - **Actions** (动作): hop, wave, dance, peek around, take a walk, stretch
 - **Position** (位置): cling to the screen edge / leave the edge, back to the center
-- **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting, show session crabs, approve permissions on Clawd
+- **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting, show session crabs, approve permissions on Clawd, daily recap after work
 - **Appearance** (外观): size, quota bar, when the mouse passes over (go see-through / fade slightly / no change), holiday outfits
 - **Settings** (设置): self-talk (chatty / normal / quiet / silent), break reminder (off / 45 / 60 / 90 min), sound effects, power saving, free roaming, full click-through, show icon in Dock, launch at login
 - **Language / 语言**: follow system / 中文 / English
@@ -245,6 +251,7 @@ These switches only work with `npm start` (unpackaged):
 CLAWD_SELFTEST=1 npm start       # hide after 4 s, show again after 8 s
 CLAWD_SELFTEST=usage npm start   # pop up the usage panel after 3 s
 CLAWD_SELFTEST=cling npm start   # cling to the screen edge after 3 s
+CLAWD_SELFTEST=report npm start  # hand over today's recap after 3 s (report-week for the weekly one)
 CLAWD_FAKE_QUOTA=7 npm start     # pretend only 7% of the 5-hour quota is left, to see each mood
 CLAWD_FAKE_WEEK=30 npm start     # pretend only 30% of the weekly quota is left, to see the ring
 CLAWD_FAKE_QUOTA=30 CLAWD_FAKE_ETA=25 npm start   # pretend the quota runs out in 25 min at this pace

@@ -428,13 +428,14 @@ function usageHtml(u) {
     if (ago >= 10) html += `<div class="foot">${t('额度数据 {0}前更新', fmtAgo(ago))}</div>`;
     html += '<div class="sep"></div>';
   }
-  html += row(t('今天'), fmtCost(u.today.cost), fmtTokens(u.today.tokens) + ' tokens');
+  const stats = r => (r && r.sessions ? `<div class="stats">${reportStats(r).flat().map(x => `<span>${x}</span>`).join(' · ')}</div>` : '');   // 会话数、干活时长、测试 / commit / push
+  html += row(t('今天'), fmtCost(u.today.cost), fmtTokens(u.today.tokens) + ' tokens') + stats(u.report && u.report.today);
   if (u.block) {
     html += row(t('5 小时窗口'), fmtCost(u.block.cost), t('还剩 {0}', fmtMin(u.block.remainingMin)));
   } else {
     html += row(t('5 小时窗口'), '—', t('当前没有进行中的窗口'));
   }
-  html += row(t('近 7 天'), fmtCost(u.week.cost), fmtTokens(u.week.tokens) + ' tokens');
+  html += row(t('近 7 天'), fmtCost(u.week.cost), fmtTokens(u.week.tokens) + ' tokens') + stats(u.report && u.report.last7);
   const models = Object.entries(u.byModel).sort((a, b) => b[1].cost - a[1].cost);
   if (models.length && u.today.cost > 0) {
     html += '<div class="models">' + models.slice(0, 3)
@@ -480,7 +481,7 @@ window.pet?.onUsage(u => {
     }
   }
   if (!usageInit && m === 4 && !isClinging()) setAction({ type: 'sleep' });
-  if (usageInit) checkEtaAndBreak(u);
+  if (usageInit) { checkEtaAndBreak(u); checkReport(u); }
   usageInit = true;
   if (bubbleKind === 'usage') setBubbleHtml(usageHtml(usage), false);   // 气泡开着时实时刷新
 });
@@ -603,6 +604,7 @@ function ccPurge() {
 }
 function ccWorking() { ccPurge(); for (const x of ccSessions.values()) if (CC_BUSY.includes(x.state)) return true; return false; }
 function ccActivity(x, short = false) {   // 一句话描述会话在干什么
+  if (x.compacting) return t('压缩上下文');
   if (x.state === 'tool') {
     const d = x.detail ? (short && x.detail.length > 16 ? x.detail.slice(0, 15) + '…' : x.detail) : '';
     return `${TOOL_LABEL[x.tool] ? t(TOOL_LABEL[x.tool]) : x.tool || t('干活')}${d ? t('：') + d : ''}`;
@@ -627,6 +629,13 @@ function ccSessionsHtml() {   // 用量面板底部的会话列表
   return `<div class="sep"></div><div class="sub">${t('Claude Code 会话')}</div>${rows}`;
 }
 function ccProject(ev) { const n = ev.title || ev.project; return n ? `<br><b>${esc(n)}</b>` : ''; }
+// 上下文快满(≥ 90%,快要自动压缩):提醒一次;压缩完、用量掉下去之后才会再提醒
+function ctxCheck(x, ev) {
+  if (x.ctx < CTX_FAT) x.ctxWarned = false;
+  if (!(x.ctx >= CTX_FULL) || x.ctxWarned || x.compacting) return;
+  x.ctxWarned = true;
+  if (ccNotify.done && !paused) say(t('🦀 上下文快满了（{0}%），快要自动压缩', Math.min(99, Math.round(x.ctx * 100))) + ccProject(ev), 6);
+}
 function ccAlert(html, secs, jump) {
   if (paused) return;
   say(html, secs);
@@ -643,7 +652,10 @@ window.pet?.onClaude?.(ev => {
   if (ev.project) x.project = ev.project;
   if (ev.title) x.title = ev.title;   // 会话标题,没有就退回项目名
   if (ev.app) { x.app = ev.app; x.tty = ev.tty; x.host = ev.host; }   // 会话开在哪个 App / 终端,点小螃蟹时跳过去
+  if (ev.ctx != null) x.ctx = ev.ctx;   // 上下文用了多少(1 = 到了自动压缩的位置)
+  if (x.compacting && ev.event !== 'PreCompact') x.compacting = 0;   // 压缩完了(万一没收到 PostCompact,有别的事件也算完)
   ccSessions.set(sid, x);
+  ctxCheck(x, ev);
   switch (ev.event) {
     case 'UserPromptSubmit': to('thinking'); x.started = now; x.since = now; x.tool = x.detail = ''; break;
     case 'PreToolUse':
@@ -653,6 +665,7 @@ window.pet?.onClaude?.(ev => {
       break;
     case 'PostToolUse': {
       const k = cmdKind(ev.cmd);
+      if (['test', 'commit', 'push'].includes(k)) window.pet?.stat?.(k);   // 记进日报
       if (k === 'test') react('test-pass'); else if (k === 'build') react('build-pass');
       else if (['push', 'commit', 'install', 'docker'].includes(k)) react(k);
       break;
@@ -689,6 +702,7 @@ window.pet?.onClaude?.(ev => {
       else ccAlert(t('💬 Claude 在等你回复') + ccProject(ev), 6);
       break;
     }
+    case 'PreCompact': x.compacting = now; break;
     case 'SessionEnd': ccSessions.delete(sid); break;
   }
   if (wasWorking !== ccWorking() && action.type === 'rest') delete action.prop;   // 状态一变,马上拿起 / 放下电脑
@@ -700,20 +714,30 @@ window.pet?.onClaude?.(ev => {
 // (做完 / 出错的 1 分钟后消失)。光标移到小螃蟹上,列出每个会话在干什么。
 const DOT_MAX = 6, DOT_DONE_KEEP = 60e3, RIDERS_MAX = SCALE < 0.6 ? 3 : 4;   // 头顶最多趴 4 只(迷你只有 3 只的地方),多的显示 +N
 const DOT_RANK = { ask: 0, waiting: 1, tool: 2, thinking: 3, error: 4, done: 5 };
-const CRAB_PX = ['.#######.', '.#.###.#.', '#########', '.#######.', '.#.#.#.#.'];   // 9×5 像素,和菜单栏图标同一个造型
-const CRAB_RECTS = CRAB_PX.flatMap((row, y) => [...row].map((c, x) => (c === '#' ? `<rect x="${x}" y="${y}" width="1" height="1"/>` : ''))).join('');
-const BANG = '<svg class="bang" viewBox="0 0 1 6" width="2" height="12"><rect width="1" height="4"/><rect y="5" width="1" height="1"/></svg>';   // 像素「!」
-const crabSvg = state => {
-  const crab = `<svg class="crab" viewBox="0 0 9 5" width="18" height="10">${CRAB_RECTS}</svg>`;
-  return `<i class="rider st-${state}">${state === 'ask' || state === 'waiting' ? BANG : ''}${crab}</i>`;   // 等你的那只头顶一个「!」
+// 9×5 像素,和菜单栏图标同一个造型;上下文快满时换成胖一圈(≥ 75%)、再胖一圈并冒汗(≥ 90%)的
+const CRAB_PX = [
+  ['.#######.', '.#.###.#.', '#########', '.#######.', '.#.#.#.#.'],
+  ['.#########.', '.#.#####.#.', '###########', '###########', '.#########.', '.#..#.#..#.'],
+  ['.###########.', '.#.#######.#.', '#############', '#############', '#############', '.###########.', '.#..#...#..#.'],
+];
+const CTX_FAT = 0.75, CTX_FULL = 0.9;
+const crabFat = x => (x.ctx >= CTX_FULL ? 2 : x.ctx >= CTX_FAT ? 1 : 0);
+const crabArt = fat => {
+  const px = CRAB_PX[fat], w = px[0].length, h = px.length;
+  const rects = px.flatMap((row, y) => [...row].map((c, x) => (c === '#' ? `<rect x="${x}" y="${y}" width="1" height="1"/>` : ''))).join('');
+  return `<svg class="crab" viewBox="0 0 ${w} ${h}" width="${w * 2}" height="${h * 2}">${rects}</svg>`;
 };
+const BANG = '<svg class="bang" viewBox="0 0 1 6" width="2" height="12"><rect width="1" height="4"/><rect y="5" width="1" height="1"/></svg>';   // 像素「!」
+const DROP = '<svg class="drop" viewBox="0 0 2 3" width="4" height="6"><rect width="1" height="1"/><rect y="1" width="2" height="2"/></svg>';   // 像素汗珠
+const crabSvg = (state, fat) =>   // 等你的那只头顶一个「!」;快满的那只冒汗
+  `<i class="rider st-${state}">${state === 'ask' || state === 'waiting' ? BANG : ''}${fat === 2 ? DROP : ''}${crabArt(fat)}</i>`;
 const dotsTip = document.getElementById('dotstip'), ridersEl = document.getElementById('riders');
 let dotsHover = false, dotsSince = 0, dotList = [], dotsTargets = [], ridersTop = Infinity, ridersSide = 0, crabsOn = true;   // crabsOn:菜单里可以关掉
 function dotSessions() {   // 要显示的会话:干活 / 等你的,加上刚做完或出错不到 1 分钟的;等你的排前面
   ccPurge();
   const now = Date.now();
   return [...ccSessions.entries()]
-    .filter(([, x]) => CC_BUSY.includes(x.state) || x.state === 'ask' || x.state === 'waiting' || now - x.since < DOT_DONE_KEEP)
+    .filter(([, x]) => CC_BUSY.includes(x.state) || x.state === 'ask' || x.state === 'waiting' || x.compacting || now - x.since < DOT_DONE_KEEP)
     .sort((a, b) => DOT_RANK[a[1].state] - DOT_RANK[b[1].state] || b[1].started - a[1].started)
     .slice(0, DOT_MAX);
 }
@@ -735,7 +759,7 @@ function updateRiders() {
   // 打开用量面板时先藏起来(面板里本来就列着会话);其他气泡出现时照常显示,气泡会抬到它上面
   const hidden = !crabsOn || paused || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type);
   dotList = hidden ? [] : dotSessions();
-  const html = dotList.slice(0, RIDERS_MAX).map(([, x]) => crabSvg(x.state)).join('')
+  const html = dotList.slice(0, RIDERS_MAX).map(([, x]) => crabSvg(x.state, crabFat(x))).join('')
     + (dotList.length > RIDERS_MAX ? `<b>+${dotList.length - RIDERS_MAX}</b>` : '');
   if (ridersEl.dataset.html !== html) { ridersEl.dataset.html = html; ridersEl.innerHTML = html; }
   ridersEl.classList.toggle('show', dotList.length > 0);
@@ -754,20 +778,20 @@ function updateRiders() {
 }
 // 做完 / 出错的会话到时间离开时,那只螃蟹不是直接消失,而是从头顶跳下来:做完的挥挥手(蹦两下),
 // 出错的翻个肚皮蹬蹬腿,然后横着爬走。只在站着时这样;贴边、拖着、藏起来时照旧直接消失
-const ridersPrev = new Map();   // 上一帧趴在头顶的螃蟹:sid → { state, rect }
+const ridersPrev = new Map();   // 上一帧趴在头顶的螃蟹:sid → { state, fat, rect }
 function trackLeavers(hidden, rot) {
   if (hidden) { ridersPrev.clear(); return; }
   const cx = canvasLeft + CW / 2;
   for (const [sid, p] of ridersPrev)
     if ((p.state === 'done' || p.state === 'error') && !dotList.some(([s]) => s === sid))
-      crabLeave(p.state, p.rect, Math.sign(p.rect.left + p.rect.width / 2 - cx) || 1);   // 往离 Clawd 远的那边走
+      crabLeave(p.state, p.fat, p.rect, Math.sign(p.rect.left + p.rect.width / 2 - cx) || 1);   // 往离 Clawd 远的那边走
   ridersPrev.clear();
   if (rot !== 0) return;
   const els = ridersEl.querySelectorAll('.rider');
-  dotList.slice(0, RIDERS_MAX).forEach(([sid, x], i) => { if (els[i]) ridersPrev.set(sid, { state: x.state, rect: els[i].getBoundingClientRect() }); });
+  dotList.slice(0, RIDERS_MAX).forEach(([sid, x], i) => { if (els[i]) ridersPrev.set(sid, { state: x.state, fat: crabFat(x), rect: els[i].getBoundingClientRect() }); });
 }
 // 头顶最高处:身体 / 道具的顶边,头上趴着螃蟹时取螃蟹(连同「!」)的顶边。血条、气泡都挂在它上面
-const petTop = an => Math.min(an.top, ridersTop - 4);
+const petTop = an => Math.min(an.top, ridersTop - 4, packTop - 4);
 
 // ---------------- 小特效:彩纸、烟、跳下去爬走的小螃蟹 ----------------
 // 都是屏幕上的像素小方块(DOM),跟着主循环一帧帧动,动完就删掉
@@ -804,9 +828,38 @@ function sparkles(x, y) {   // 构建成功:头顶闪一把金色小星星
   for (let i = 0; i < 12; i++)
     fxAdd({ x: x + rand(-24, 24), y: y - rand(0, 20), vx: rand(-40, 40), vy: rand(-120, -40), g: 120, drag: 1.2, life: rand(0.6, 1), color: i % 2 ? '#D4A24C' : '#F2E3B0', size: 4 });
 }
-function crabLeave(state, r, dir) {
+function crabLeave(state, fat, r, dir) {
   fxAdd({ crab: true, x: r.left, y: r.top, h: r.height, vx: dir * 70, vy: -240, g: 1100, dir, phase: 'hop', hops: state === 'error' ? 0 : 2, belly: state === 'error', life: 30 },
-    `crab rider st-${state}`, `<svg viewBox="0 0 9 5" width="18" height="10">${CRAB_RECTS}</svg>`);
+    `crab rider st-${state}`, crabArt(fat));
+}
+// 压缩上下文:Clawd 头顶出现一个敞口纸箱,纸片一张张飞进去;压缩完封上胶带,Clawd 蹦一下,纸箱淡出
+const packEl = document.getElementById('packbox');
+const PACK_OPEN = '<svg viewBox="0 0 12 10" width="24" height="20"><path fill="#B98B5A" d="M0 0h1v1H0zM0 1h2v1H0zM1 2h1v1H1zM11 0h1v1h-1zM10 1h2v1h-2zM10 2h1v1h-1z"/>'
+  + '<path fill="#8A6A44" d="M1 3h10v1H1z"/><path fill="#D6B07C" d="M1 4h10v6H1z"/></svg>';
+const PACK_SHUT = '<svg viewBox="0 0 12 10" width="24" height="20"><path fill="#B98B5A" d="M1 3h10v1H1z"/><path fill="#D6B07C" d="M1 4h10v6H1z"/>'
+  + '<path fill="#EDE6DA" d="M5 3h2v3H5z"/></svg>';
+let packTop = Infinity, packPhase = null, packT = 0, nextPaper = 0;   // packPhase:null / 'open' 装纸片 / 'shut' 封好了
+function updatePack(t) {
+  const now = Date.now();
+  const busy = [...ccSessions.values()].some(x => x.compacting && now - x.compacting < 5 * 60e3);   // 最多等 5 分钟
+  const away = paused || isClinging() || ['drag', 'leave', 'sleep'].includes(action.type);
+  if (busy && packPhase !== 'open') { packPhase = 'open'; packEl.innerHTML = PACK_OPEN; }
+  else if (!busy && packPhase === 'open') { packPhase = 'shut'; packT = t; packEl.innerHTML = PACK_SHUT; react('packed'); }
+  else if (packPhase === 'shut' && t - packT > 1.4) packPhase = null;
+  packEl.classList.toggle('show', !!packPhase && !away);
+  packTop = Infinity;
+  if (!packPhase || away) return;
+  const an = petAnchor(), w = packEl.offsetWidth, h = packEl.offsetHeight;
+  const bx = an.x, by = Math.min(an.top, ridersTop - 4) - 6 - h;   // 纸箱的左上角在头顶(和小螃蟹)上面
+  const hop = packPhase === 'shut' && t - packT < 0.3 ? -Math.round(Math.sin((t - packT) / 0.3 * Math.PI) * 6) : 0;   // 封口时纸箱一跳
+  setTransform(packEl, `translate(${Math.round(bx - w / 2)}px, ${Math.round(by) + hop}px)`);
+  packTop = by;
+  if (packPhase === 'open' && t > nextPaper) {   // 从身体两边抛一张纸片,划个弧线落进箱口
+    nextPaper = t + rand(0.3, 0.5);
+    const d = Math.random() < 0.5 ? -1 : 1, T = 0.6, g = 700;
+    const x0 = an.x + d * rand(36, 70), y0 = an.top + rand(10, 50), tx = bx + rand(-6, 2), ty = by + 6;
+    fxAdd({ x: x0, y: y0, vx: (tx - x0) / T, vy: (ty - y0 - g * T * T / 2) / T, g, life: T, color: '#F4EFE4', size: 5 });
+  }
 }
 function stepCrab(f, dt) {
   const floor = Hpx - f.h;   // 和 Clawd 站在同一条地面上
@@ -886,6 +939,7 @@ function react(kind) {
   else if (kind === 'build-fail') { setAction({ type: 'slump', dur: 2.4 }); flashFace('cry', 2.4); sfx('low'); }
   else if (kind === 'docker') { setAction({ type: 'jump', dir: 0 }); flashFace('wink', 1.4); bubbles(an.x, an.top); }
   else if (kind === 'sudo') { setAction({ type: 'shiver', dur: 0.8 }); flashFace('annoyed', 1.6); }
+  else if (kind === 'packed') { setAction({ type: 'jump', dir: 0 }); flashFace('happy', 1.4); sfx('recover'); }
 }
 // 血条里的内容:格子 = 5 小时额度,小圆环 = 本周额度;nums 时两个百分比都写出来
 function usageHTML(L, vert, nums) {
@@ -912,7 +966,8 @@ function updateDots() {   // 光标停在小螃蟹上时的会话详情
   const u = hpUsage && usageHTML(hpUsage, false, true);
   const html = (u ? `<section class="usage lv${u.hl}">${u.html}</section>` : '') + dotList.map(([, s]) => {
     const time = CC_BUSY.includes(s.state) ? fmtElapsed(now - s.started) : fmtElapsed(now - s.since);
-    return `<div class="st-${s.state}"><span>${CC_ICON[s.state] || ''} ${esc(s.title || s.project || t('会话'))}</span><b>${esc(ccActivity(s, true))}</b><i>${time}</i></div>`;
+    const ctx = s.ctx >= CTX_FAT ? ` · ${t('上下文 {0}%', Math.min(99, Math.round(s.ctx * 100)))}` : '';   // 快满了才显示
+    return `<div class="st-${s.state}"><span>${CC_ICON[s.state] || ''} ${esc(s.title || s.project || t('会话'))}</span><b>${esc(ccActivity(s, true) + ctx)}</b><i>${time}</i></div>`;
   }).join('') + (dotList.some(([, s]) => s.app) ? `<p>${t('点小螃蟹跳到它的窗口')}</p>` : '');
   if (dotsTip.dataset.html !== html) { dotsTip.dataset.html = html; dotsTip.innerHTML = html; }
   const rs = dotsTargets.map(e => e.getBoundingClientRect());
@@ -1035,6 +1090,32 @@ function decidePerm(d) {   // 点按钮或按快捷键
   sfx(d === 'allow' ? 'pop' : 'poke');
   if (d === 'pass' && p.app) window.pet?.focusSession({ app: p.app, tty: p.tty, host: p.host });   // 去终端处理:顺便跳过去
   dropPerm(p.id);
+}
+
+// ---------------- 日报 / 周报 ----------------
+// 下班后(18 点以后)第一次有空,今天用过 Claude Code 就递一张小报,周五递本周的。一天只递一次;
+// 你不在、正在说别的话时等下一轮(用量每 30 秒推一次)
+let reportOn = true;
+const REPORT_HOUR = 18;
+function reportStats(r) {   // 小报 / 用量面板里的数据:两组(会话和时长 / 测试、commit、push),每组几小块
+  const acts = [r.test && t('测试通过 <b>{0}</b> 次', r.test), r.commit && `commit <b>${r.commit}</b>`, r.push && `push <b>${r.push}</b>`].filter(Boolean);
+  return [[t('会话 <b>{0}</b> 个', r.sessions), t('Claude 干活 <b>{0}</b>', fmtMin(Math.round(r.workMs / 60e3)))], acts].filter(g => g.length);
+}
+function showReport(week) {
+  const rp = usage && usage.report, r = rp && (week ? rp.week : rp.today);
+  if (!r || !r.sessions) return;
+  const cost = week ? r.cost : usage.today.cost;
+  const lines = [...reportStats(r).map(g => g.join(' · ')), cost > 0 && t('估算花费 <b>{0}</b>', fmtCost(cost)), r.top && t('最忙的项目 <b>{0}</b>', esc(r.top))].filter(Boolean);
+  sfx('chime');
+  ccAlert(`${week ? t('📰 本周小报') : t('📰 今天的小报')}<br>${lines.join('<br>')}`, 12);
+}
+function checkReport(u) {
+  const rp = u.report;
+  if (!reportOn || !rp || rp.shown === rp.day || new Date().getHours() < REPORT_HOUR) return;
+  if (paused || userAway || (bubbleKind && nowSec() < bubbleUntil) || ['drag', 'leave'].includes(action.type)) return;
+  rp.shown = rp.day;
+  window.pet?.reportShown(rp.day);
+  showReport(new Date().getDay() === 5);
 }
 
 // ---------------- 你离开时的小结 ----------------
@@ -1202,6 +1283,8 @@ window.pet?.onCommand(cmd => {
   if (cmd.startsWith('cc-notify:')) { ccNotify = { done: cmd[10] === '1', ask: cmd[11] === '1' }; return; }
   if (cmd.startsWith('cc-hooks:')) { ccHooks = cmd.slice(9) === 'on'; return; }
   if (cmd.startsWith('crabs:')) { crabsOn = cmd === 'crabs:on'; return; }
+  if (cmd.startsWith('report:')) { reportOn = cmd === 'report:on'; return; }
+  if (cmd.startsWith('show-report:')) { showReport(cmd === 'show-report:week'); return; }
   if (cmd.startsWith('hp:')) { hpMode = cmd.slice(3); return; }
   if (cmd.startsWith('power:')) { onBattery = cmd === 'power:battery'; return; }
   if (cmd.startsWith('power-save:')) { powerSave = cmd === 'power-save:on'; return; }
@@ -1913,6 +1996,7 @@ function frame() {
   if (hovering || dotsHover) { hpHoverUntil = t + 1.5; hpFromDots = dotsHover; }   // 悬停模式:移开后再停 1.5 秒(在看小螃蟹详情时也别收起)
   updateFx(dt);
   updateRiders();
+  updatePack(t);
   const hpOn = hpMode === 'always' || (hpMode === 'hover' && t < hpHoverUntil);
   hpUsage = hpOn && L && (L.fiveHour || L.sevenDay) && !bubbleKind && !paused ? L : null;
   if (hpUsage && !(dotList.length && (dotsHover || (hpFromDots && t < hpHoverUntil)))) {   // 在看小螃蟹详情时,用量并进详情框里,不单独显示(移开后也别再单独冒出来)
