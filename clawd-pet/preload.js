@@ -9,7 +9,8 @@ contextBridge.exposeInMainWorld('pet', {
   onClaude: (cb) => ipcRenderer.on('cc', (_e, ev) => cb(ev)),   // Claude Code hooks 事件
   focusSession: (s) => ipcRenderer.send('focus-session', s),   // 点小螃蟹:跳到会话所在的窗口
   onPerm: (cb) => ipcRenderer.on('perm', (_e, p) => cb(p)),   // Claude 要你批准:在 Clawd 上弹按钮
-  permDecision: (id, behavior) => ipcRenderer.send('perm-decision', id, behavior),
+  permDecision: (id, behavior, answers) => ipcRenderer.send('perm-decision', id, behavior, answers),   // answers:选择题的回答
+  permTyping: (on) => ipcRenderer.send('perm-typing', on),
   requestUsage: () => ipcRenderer.send('request-usage'),
   setClinging: (v) => ipcRenderer.send('clinging', v),
 });
