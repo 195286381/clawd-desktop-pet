@@ -174,6 +174,27 @@ function toolDetail(n, input) {
     default: return '';
   }
 }
+// 会话标题(Claude App 侧边栏 / /rename 起的名字,没有就用自动生成的):列表里优先显示它,比项目目录名好认。
+// Claude Code 会把标题反复追加到会话记录里,所以只读文件末尾一段
+const titles = new Map();   // session → { name, at }
+let ccQueue = Promise.resolve();
+function sessionTitle(sid, file) {
+  file = String(file || '');
+  const c = titles.get(sid);
+  if (!sid || !path.isAbsolute(file) || !file.endsWith('.jsonl')) return Promise.resolve(c?.name || '');
+  if (c && Date.now() - c.at < 10e3) return Promise.resolve(c.name);   // 事件很密,10 秒内不重复读
+  return fs.promises.open(file, 'r').then(async fh => {
+    try {
+      const { size } = await fh.stat(), len = Math.min(size, 1 << 20);
+      const { buffer } = await fh.read(Buffer.alloc(len), 0, len, size - len);
+      const text = buffer.toString('utf8'), last = re => [...text.matchAll(re)].pop()?.[1];
+      const raw = last(/"type":"custom-title","customTitle":("(?:[^"\\]|\\.)*")/g) || last(/"type":"ai-title","aiTitle":("(?:[^"\\]|\\.)*")/g);
+      const name = raw ? clip(JSON.parse(raw), 40) : c?.name || '';
+      titles.set(sid, { name, at: Date.now() });
+      return name;
+    } finally { fh.close(); }
+  }).catch(() => c?.name || '');
+}
 http.createServer((req, res) => {
   if (req.method !== 'POST' || (req.url !== '/hook' && req.url !== '/permission')) { res.writeHead(404); return res.end(); }
   let body = '';
@@ -186,14 +207,17 @@ http.createServer((req, res) => {
     const host = String(req.headers['x-clawd-host'] || '').trim();
     if (perm) return askPermission(res, d, {
       app: /^[\w.-]+$/.test(appId) ? appId : '', tty: /^ttys\d+$/.test(tty) ? tty : '', host: HOST_ID.test(host) ? host : '' });
-    if (win && !win.isDestroyed()) win.webContents.send('cc', {
-      app: /^[\w.-]+$/.test(appId) ? appId : '', tty: /^ttys\d+$/.test(tty) ? tty : '', host: HOST_ID.test(host) ? host : '',
+    const where = {
+      app: /^[\w.-]+$/.test(appId) ? appId : '', tty: /^ttys\d+$/.test(tty) ? tty : '', host: HOST_ID.test(host) ? host : '' };
+    const ev = {
       event: String(d.hook_event_name || ''), session: String(d.session_id || ''),
       project: d.cwd ? path.basename(String(d.cwd)) : '', message: String(d.message || ''), at: Date.now(),
       ntype: String(d.notification_type || ''),
       tool: toolName(d.tool_name), detail: toolDetail(d.tool_name, d.tool_input), error: clip(d.error, 60),
       cmd: d.tool_name === 'Bash' ? String(d.tool_input?.command || '').replace(/\s+/g, ' ').slice(0, 500) : '',   // 认出跑测试 / git push / rm -rf,Clawd 做出反应
-    });
+    };
+    ccQueue = ccQueue.then(() => sessionTitle(ev.session, d.transcript_path))   // 排队发,读标题再慢也不打乱事件顺序
+      .then(title => { if (win && !win.isDestroyed()) win.webContents.send('cc', { ...where, ...ev, title }); });
   });
 }).on('error', e => console.error('Clawd hooks 接口启动失败', e.message)).listen(HOOK_PORT, '127.0.0.1');
 
@@ -233,7 +257,7 @@ function askPermission(res, d, where) {
     const name = String(d.tool_name || '');
     const preview = name === 'Bash' ? String(d.tool_input?.command || '').trim() : toolDetail(name, d.tool_input);
     win.webContents.send('perm', {
-      id, ...where, session: String(d.session_id || ''), project: d.cwd ? path.basename(String(d.cwd)) : '',
+      id, ...where, session: String(d.session_id || ''), project: d.cwd ? path.basename(String(d.cwd)) : '', title: titles.get(String(d.session_id || ''))?.name || '',
       tool: toolName(name), preview: preview.length > 300 ? preview.slice(0, 299) + '…' : preview,
     });
   });
