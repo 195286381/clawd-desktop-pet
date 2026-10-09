@@ -179,10 +179,13 @@
  "…还有 {0} 个": "…and {0} more",
  "在 Clawd 上批准权限": "Approve permissions on Clawd",
  "已打开：在 Clawd 上批准权限": "Turned on: approve permissions on Clawd",
- "Claude 要你批准时，如果它所在的终端 / App 不在最前面，Clawd 会弹出「允许 / 拒绝 / 去终端处理」；60 秒没点就交回终端照常弹框。终端在最前面时不拦，直接在终端里批准。\n\n新开的 Claude Code 会话才生效。": "When Claude needs your approval and its terminal / app isn't in front, Clawd shows Allow / Deny / Go to terminal. If you don't click within 60 seconds, the usual prompt appears in the terminal. When the terminal is in front, Clawd stays out of the way.\n\nTakes effect in newly opened Claude Code sessions.",
+ "Claude 要你批准时，如果它所在的终端 / App 不在最前面，Clawd 会弹出「允许 / 拒绝 / 去终端处理」；60 秒没点就交回终端照常弹框。终端在最前面时不拦，直接在终端里批准。\n\nClaude 问你选择题时也一样，可以直接点选项，或者自己写回答。\n\n新开的 Claude Code 会话才生效。": "When Claude needs your approval and its terminal / app isn't in front, Clawd shows Allow / Deny / Go to terminal. If you don't click within 60 seconds, the usual prompt appears in the terminal. When the terminal is in front, Clawd stays out of the way.\n\nThe same goes for multiple-choice questions from Claude: pick an option or type your own answer.\n\nTakes effect in newly opened Claude Code sessions.",
  "🙋 <b>{0}</b> 要用 <b>{1}</b>": "🙋 <b>{0}</b> wants to use <b>{1}</b>",
  "允许": "Allow",
  "拒绝": "Deny",
  "去终端处理": "Go to terminal",
- "后面还有 {0} 个": "{0} more waiting"
+ "后面还有 {0} 个": "{0} more waiting",
+ "🙋 <b>{0}</b> 问你": "🙋 <b>{0}</b> asks",
+ "其他，自己写…": "Other, type your own…",
+ "确定": "OK"
 }
