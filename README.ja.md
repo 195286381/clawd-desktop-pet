@@ -295,7 +295,7 @@ python3 build/make_icon.py
 <details>
 <summary><b>デザインと動きの元ネタ</b></summary>
 
-- **見た目**：Claude Code に出てくる Clawd のブロック文字アート、Anthropic 公式の Clawd アニメーション（[@claudeai](https://x.com/claudeai) が投稿した短い動画）、そして 3D プリントの Clawd をもとにしています。四角くがっしりした体、平たい腕、4 本のブロックの脚（真ん中の 2 本の間隔が広め）、小さな四角い目。脚は元のデザインより少し長くして、動きを生き生きさせています
+- **見た目**：Claude Code に出てくる Clawd のブロック文字アート、Anthropic 公式の Clawd アニメーション（[@claudeai](https://x.com/claudeai) が投稿した短い動画）、そして 3D プリントの Clawd をもとにしています。四角くがっしりした体、平たい腕、2 本ずつ並んだ 4 本の細い脚（それぞれ前後に伸びた板状）、小さな四角い目。脚は元のデザインより少し長くして、動きを生き生きさせています
 - **脚**：各脚は股関節から足までの柱で、地面に触れた足はその場に固定されます。のぞき込むときは体が前に傾き、脚は平行四辺形のように斜めになります。歩くときは 2 組の脚が交互に踏み出し、空中では脚が伸びすぎないように制限しつつぶら下がります
 - **動き**：予備動作、スクワッシュ & ストレッチ、着地時のバウンドを伴う減衰バネ —— [Codrops による公式アニメーションのコマ送り解説](https://tympanus.net/codrops/2026/05/05/reverse-engineering-claude-ais-mascot-animations-with-svg-and-gsap/)を参考にしています
 

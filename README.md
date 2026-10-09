@@ -302,7 +302,7 @@ Regenerate the menu bar icon (needs Pillow): `python3 build/make_tray.py`
 <details>
 <summary><b>Where the design and motion come from</b></summary>
 
-- **Look**: based on Clawd's quadrant-block ASCII art in Claude Code, the official Anthropic Clawd animations (short videos posted by [@claudeai](https://x.com/claudeai)), and the 3D-printed Clawd: a square, sturdy body, flat arms, four block legs (with a wider gap between the middle two), and small square eyes. The legs are a bit longer than the reference so it moves more lively
+- **Look**: based on Clawd's quadrant-block ASCII art in Claude Code, the official Anthropic Clawd animations (short videos posted by [@claudeai](https://x.com/claudeai)), and the 3D-printed Clawd: a square, sturdy body, flat arms, four thin legs in two pairs (each a slab running front to back), and small square eyes. The legs are a bit longer than the reference so it moves more lively
 - **Legs**: each leg is a hip-to-foot column; feet stay planted once they touch the ground. When peeking, the body leans forward and the legs slant like a parallelogram; when walking, the two pairs step alternately; in the air the legs dangle with limited stretch
 - **Motion**: damped springs with anticipation, squash and stretch, and a bounce on landing — inspired by [Codrops' frame-by-frame breakdown of the official animations](https://tympanus.net/codrops/2026/05/05/reverse-engineering-claude-ais-mascot-animations-with-svg-and-gsap/)
 
