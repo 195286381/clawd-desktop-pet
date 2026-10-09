@@ -1,6 +1,6 @@
 // Clawd 桌宠 —— 渲染进程
 // 比例和动作参考 Anthropic 官方 Clawd 动画(@claudeai 发布的短片,以及 Codrops 上对它的逐帧拆解):
-//   · 四条腿较长(约为身体高度的一半),外侧两条贴着身体边缘,中间留空;
+//   · 四条细腿较长(约为身体高度的一半),每边两条挨着,中间留空;
 //   · 眼睛是小方块;两侧短手臂大约和眼睛同高;
 //   · 张望时身体前倾、抬高、微转,脚钉在地上不动,腿被拉长、整体斜过去;
 //   · 起跳前快速下蹲、手往下压;落地手会往下"弹"一下再回来。
@@ -62,15 +62,15 @@ shadowPlane.receiveShadow = true;
 scene.add(shadowPlane);
 
 // ---------------- 模型(比例对照官方像素形象和 3D 打印的 Clawd) ----------------
-// 方方正正、厚实的身体;短粗的方块腿(中间两条间距更大);手是扁平长板;眼睛靠外侧
+// 方方正正、厚实的身体;细腿两两成对,每条从前到后是一片(像 3D 打印版);手是扁平长板;眼睛靠外侧
 // 整体大小和上一版持平:宽约 2.5、总高(腿 + 身子)约 2.15 个世界单位
 const BW = 2.5;                                   // 身体宽
 const BH = BW * 0.6, BD = BW * 0.45;              // 高、厚
-const LEG_L = BH * 0.42, LEG_W = BW * 0.15;       // 腿比参考图长一些,走起来更灵动
+const LEG_L = BH * 0.42, LEG_W = BW / 12, LEG_D = BD * 0.8;   // 腿比参考图长一些,走起来更灵动;前后厚度和手一样
 const EYE = 0.28;                                 // 眼睛大小、间距、高度都沿用上一版(眼神更灵动)
 const EYE_X = BW / 2 - 0.51, EYE_Y = BH * 0.58;
 const ARM_Y = BH * 0.52, ARM_OUT = BW * 0.13, ARM_H = BH * 0.3, ARM_TUCK = 0.35;
-const REST_X = [0.085, 0.33, 0.67, 0.915].map(f => -BW / 2 + f * BW);   // 四条腿的 x
+const REST_X = [1.5, 3.5, 8.5, 10.5].map(c => -BW / 2 + c * LEG_W);   // 四条腿的 x:按终端字符画 12 格宽的身体,腿在第 2、4、9、11 格
 const GROUP = [0, 1, 0, 1];       // 交替迈步的两组脚
 
 const orange = new THREE.MeshPhysicalMaterial({ color: 0xD97757, roughness: 0.5, clearcoat: 0.2, clearcoatRoughness: 0.45 });
@@ -107,7 +107,7 @@ const arms = [-1, 1].map(s => {
   return { g, s };
 });
 
-const legGeo = new RoundedBoxGeometry(LEG_W, 1, LEG_W, 2, 0.02);
+const legGeo = new RoundedBoxGeometry(LEG_W, 1, LEG_D, 2, 0.02);
 legGeo.translate(0, 0.5, 0);             // 底端在原点,沿 +y 伸长
 const legs = REST_X.map(() => {
   const m = new THREE.Mesh(legGeo, orange);

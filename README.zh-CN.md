@@ -302,7 +302,7 @@ python3 build/make_icon.py
 <details>
 <summary><b>造型与动作的依据</b></summary>
 
-- **造型**：参考 Claude Code 程序里 Clawd 的四分块字符画、Anthropic 官方 Clawd 动画（[@claudeai](https://x.com/claudeai) 发布的短片）和 3D 打印版：方方正正、厚实的身体，两侧扁平的手臂，四条方块腿（中间两条间距更大），小方块眼睛。腿比参考形象略长一些，走起来更灵动
+- **造型**：参考 Claude Code 程序里 Clawd 的四分块字符画、Anthropic 官方 Clawd 动画（[@claudeai](https://x.com/claudeai) 发布的短片）和 3D 打印版：方方正正、厚实的身体，两侧扁平的手臂，四条细腿两两成对（每条从前到后是一片薄板），小方块眼睛。腿比参考形象略长一些，走起来更灵动
 - **腿部动作**：腿是「髋 → 脚」的柱子，脚落地后钉在地面上；张望时身体前倾、四条腿像平行四边形一样斜过去；走路时两组脚交替迈步；在空中时腿挂在身体下面晃荡，并限制伸缩长度
 - **其他动作**：全部用阻尼弹簧过渡，有蓄力、挤压拉伸和落地回弹，参考了 [Codrops 对官方动画的逐帧拆解](https://tympanus.net/codrops/2026/05/05/reverse-engineering-claude-ais-mascot-animations-with-svg-and-gsap/)
 
