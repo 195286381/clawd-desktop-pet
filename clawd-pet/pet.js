@@ -453,7 +453,7 @@ function showUsage() {
   say(usageHtml(usage), 8, 'usage');
 }
 
-let usageInit = false, lastNag = 0;
+let usageInit = false, lastNag = 0, moodByQuota = false;   // moodByQuota:心情是按额度算的(否则是按花费估算的)
 function quotaLine() {
   if (!quota) return '';
   return t('{0}只剩 <b>{1}%</b>', quota.label, Math.round(quota.rem));
@@ -463,8 +463,11 @@ window.pet?.onUsage(u => {
   const prev = mood;
   const m = moodFrom(u);
   mood = m;
+  // 刚启动时额度还没查到,心情先按花费估算;额度到了换成按额度算,这时的变化不是额度真的变了,不说话
+  const switched = moodByQuota !== !!quota;
+  moodByQuota = !!quota;
   const free = !paused && bubbleKind !== 'usage' && action.type !== 'drag' && action.type !== 'leave';
-  if (usageInit && free) {
+  if (usageInit && free && !switched) {
     if (m > prev) {
       // 状态变差:主动冒一句
       if (m === 1) say(`${t('忙起来啦 💦')}<br>${quotaLine()}`, 4);
