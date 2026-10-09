@@ -622,11 +622,11 @@ function ccSessionsHtml() {   // 用量面板底部的会话列表
   const rows = [...ccSessions.values()].sort((a, b) => b.last - a.last).slice(0, 5).map(x => {
     const busy = CC_BUSY.includes(x.state);
     const time = busy ? fmtElapsed(now - x.started) : x.state === 'done' || x.state === 'error' ? t('{0}前', fmtElapsed(now - x.since)) : fmtElapsed(now - x.since);
-    return `<div class="sess st-${x.state}"><span>${esc(x.project || t('会话'))}</span><b>${CC_ICON[x.state] || ''} ${esc(ccActivity(x, true))}</b><i>${time}</i></div>`;
+    return `<div class="sess st-${x.state}"><span>${esc(x.title || x.project || t('会话'))}</span><b>${CC_ICON[x.state] || ''} ${esc(ccActivity(x, true))}</b><i>${time}</i></div>`;
   }).join('');
   return `<div class="sep"></div><div class="sub">${t('Claude Code 会话')}</div>${rows}`;
 }
-function ccProject(ev) { return ev.project ? `<br><b>${esc(ev.project)}</b>` : ''; }
+function ccProject(ev) { const n = ev.title || ev.project; return n ? `<br><b>${esc(n)}</b>` : ''; }
 function ccAlert(html, secs, jump) {
   if (paused) return;
   say(html, secs);
@@ -641,6 +641,7 @@ window.pet?.onClaude?.(ev => {
   const to = (state) => { if (x.state !== state) x.since = now; x.state = state; };
   x.last = now;
   if (ev.project) x.project = ev.project;
+  if (ev.title) x.title = ev.title;   // 会话标题,没有就退回项目名
   if (ev.app) { x.app = ev.app; x.tty = ev.tty; x.host = ev.host; }   // 会话开在哪个 App / 终端,点小螃蟹时跳过去
   ccSessions.set(sid, x);
   switch (ev.event) {
@@ -911,7 +912,7 @@ function updateDots() {   // 光标停在小螃蟹上时的会话详情
   const u = hpUsage && usageHTML(hpUsage, false, true);
   const html = (u ? `<section class="usage lv${u.hl}">${u.html}</section>` : '') + dotList.map(([, s]) => {
     const time = CC_BUSY.includes(s.state) ? fmtElapsed(now - s.started) : fmtElapsed(now - s.since);
-    return `<div class="st-${s.state}"><span>${CC_ICON[s.state] || ''} ${esc(s.project || t('会话'))}</span><b>${esc(ccActivity(s, true))}</b><i>${time}</i></div>`;
+    return `<div class="st-${s.state}"><span>${CC_ICON[s.state] || ''} ${esc(s.title || s.project || t('会话'))}</span><b>${esc(ccActivity(s, true))}</b><i>${time}</i></div>`;
   }).join('') + (dotList.some(([, s]) => s.app) ? `<p>${t('点小螃蟹跳到它的窗口')}</p>` : '');
   if (dotsTip.dataset.html !== html) { dotsTip.dataset.html = html; dotsTip.innerHTML = html; }
   const rs = dotsTargets.map(e => e.getBoundingClientRect());
@@ -951,7 +952,7 @@ function showPerm() {
   if (permShown || !permQueue.length || paused) return;
   const p = permShown = permQueue[0];
   if (bubbleKind === 'usage') hideBubble();
-  say(t('🙋 <b>{0}</b> 要用 <b>{1}</b>', esc(p.project || t('会话')), esc(p.tool)) + (p.preview ? `<code>${esc(p.preview)}</code>` : '')
+  say(t('🙋 <b>{0}</b> 要用 <b>{1}</b>', esc(p.title || p.project || t('会话')), esc(p.tool)) + (p.preview ? `<code>${esc(p.preview)}</code>` : '')
     + `<div class="btns"><button data-d="allow">${t('允许')}<small>⌥⌘Y</small></button><button data-d="deny">${t('拒绝')}<small>⌥⌘N</small></button><button data-d="pass">${t('去终端处理')}</button></div>`
     + (permQueue.length > 1 ? `<i class="more">${t('后面还有 {0} 个', permQueue.length - 1)}</i>` : ''), 3600, 'perm');
   bubble.classList.add('say');   // 外观和对你说话的气泡一样
@@ -992,7 +993,7 @@ function welcomeBack() {
   if (paused) return;
   const now = Date.now(), asks = [], others = [];
   for (const [sid, x] of ccSessions) {
-    const name = esc(x.project || t('会话'));
+    const name = esc(x.title || x.project || t('会话'));
     if (x.state === 'ask') asks.push(t('🙋 <b>{0}</b> 等你批准，已经等了 {1}', name, fmtMin(Math.max(1, Math.round((now - x.since) / 60e3)))));
     else if (awayLog.get(sid) === 'error') others.unshift(t('⚠️ <b>{0}</b> 出错停下了', name));
     else if (awayLog.get(sid) === 'done') others.push(t('✅ <b>{0}</b> 做完了', name));
@@ -1018,7 +1019,7 @@ setInterval(() => {
     if (x.nudges >= NUDGE_MAX || now - x.since < NUDGE_FIRST + x.nudges * NUDGE_EVERY) continue;
     x.nudges++;
     sfx('ask');
-    ccAlert(t('🙋 <b>{0}</b> 还在等你批准<br>已经等了 {1}', esc(x.project || t('会话')), fmtMin(Math.round((now - x.since) / 60e3))), 8);
+    ccAlert(t('🙋 <b>{0}</b> 还在等你批准<br>已经等了 {1}', esc(x.title || x.project || t('会话')), fmtMin(Math.round((now - x.since) / 60e3))), 8);
     break;   // 一次只催一个
   }
 }, 15e3);

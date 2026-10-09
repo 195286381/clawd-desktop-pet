@@ -94,7 +94,7 @@ Every active Claude Code session is a pixel crab on Clawd's head (up to 4; more 
 | Green | Just finished |
 | Red | Stopped with an error |
 
-- **Hover** the crabs to see each session's project, what it's doing and for how long (the quota bar joins this box as its top row). Clawd stays put while you look.
+- **Hover** the crabs to see each session's title (as shown in the Claude app's sidebar or set with /rename; the project folder if it has none), what it's doing and for how long (the quota bar joins this box as its top row). Clawd stays put while you look.
 - **Click a crab** to jump to that session: iTerm / Terminal switch to the exact tab (macOS asks once for Automation permission); the Claude app opens that exact session; VS Code, Ghostty and others are brought to the front. Sessions started before you connected Clawd need to be reopened once.
 - Finished and errored crabs leave after a minute — and they don't just vanish:
 
