@@ -18,9 +18,9 @@ jobs:
       run:
         working-directory: clawd-pet
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -94,7 +94,7 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent dist/Clawd-darwin-arm64/Clawd.app "$zip"
           echo "path=clawd-pet/$zip" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Clawd-macos-arm64
           path: ${{ steps.zip.outputs.path }}
