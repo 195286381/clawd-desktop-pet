@@ -697,16 +697,18 @@ window.pet?.onClaude?.(ev => {
       // 工具失败很常见(比如搜索没结果),只晕一下,不弹对话框;测试没过就垂头丧气
       { const k = cmdKind(ev.cmd); if (k === 'test') react('test-fail'); else if (k === 'build') react('build-fail'); else flashFace('dizzy', 1.6); }
       break;
+    case 'SubagentStart': (x.agents ||= new Set()).add(ev.agent || String(now)); break;
+    case 'SubagentStop': x.agents?.delete(ev.agent); break;
     case 'Stop': {
       const took = now - x.started;
-      to('done');
+      to('done'); x.agents?.clear();   // 这一轮结束,前台的子助手都收回来了(万一漏了 SubagentStop 也不会一直趴着)
       if (userAway) awayLog.set(sid, 'done');
       // 很快就答完的不打扰,干了一会儿(≥ 15 秒)的才报告
       if (ccNotify.done && took >= 15e3) { sfx('done'); flashFace('happy', 2.5); ccAlert(t('Claude 做完啦 ✅') + ccProject(ev), 6, true); }
       break;
     }
     case 'StopFailure':
-      to('error');
+      to('error'); x.agents?.clear();
       if (userAway) awayLog.set(sid, 'error');
       if (ccNotify.done) { sfx('error'); flashFace('cry', 2.5); ccAlert(t('⚠️ Claude 出错停下了') + ccProject(ev), 7); }
       break;
@@ -753,10 +755,20 @@ const crabArt = fat => {
 };
 const BANG = '<svg class="bang" viewBox="0 0 1 6" width="2" height="12"><rect width="1" height="4"/><rect y="5" width="1" height="1"/></svg>';   // 像素「!」
 const DROP = '<svg class="drop" viewBox="0 0 2 3" width="4" height="6"><rect width="1" height="1"/><rect y="1" width="2" height="2"/></svg>';   // 像素汗珠
-const crabSvg = (state, fat, lift) =>   // 等你的那只头顶一个「!」;快满的那只冒汗;光标指着的那只抬起来
-  `<i class="rider st-${state}${lift ? ' lift' : ''}">${state === 'ask' || state === 'waiting' ? BANG : ''}${fat === 2 ? DROP : ''}${crabArt(fat)}</i>`;
+// 子助手:派出它们的那只背上驮一只 5×3 像素的小螃蟹,不止一个时旁边写像素数字「×2」「×3」
+const KID = '<svg class="kid" viewBox="0 0 5 3" width="10" height="6"><path d="M1 0h3v1H1zM0 1h5v1H0zM0 2h1v1H0zM2 2h1v1H2zM4 2h1v1H4z"/></svg>';
+const DIGITS = { x: ['...', '#.#', '.#.', '#.#', '...'], 0: ['###', '#.#', '#.#', '#.#', '###'], 1: ['.#.', '##.', '.#.', '.#.', '###'],
+  2: ['###', '..#', '###', '#..', '###'], 3: ['###', '..#', '###', '..#', '###'], 4: ['#.#', '#.#', '###', '..#', '..#'], 5: ['###', '#..', '###', '..#', '###'],
+  6: ['###', '#..', '###', '#.#', '###'], 7: ['###', '..#', '..#', '..#', '..#'], 8: ['###', '#.#', '###', '#.#', '###'], 9: ['###', '#.#', '###', '..#', '###'] };
+const pxText = str => {   // 3×5 像素字,每格 1px,字间空 1px
+  const rects = [...str].flatMap((c, k) => DIGITS[c].flatMap((row, y) => [...row].map((p, x) => (p === '#' ? `<rect x="${k * 4 + x}" y="${y}" width="1" height="1"/>` : ''))));
+  return `<svg class="kn" viewBox="0 0 ${str.length * 4 - 1} 5" width="${str.length * 4 - 1}" height="5">${rects.join('')}</svg>`;
+};
+const kidsOf = x => x.agents?.size || 0;
+const crabSvg = (state, fat, lift, kids) =>   // 等你的那只头顶一个「!」;快满的那只冒汗;光标指着的那只抬起来;背上驮着子助手
+  `<i class="rider st-${state}${lift ? ' lift' : ''}">${state === 'ask' || state === 'waiting' ? BANG : ''}${kids ? `<span class="kids">${KID}${kids > 1 ? pxText('x' + kids) : ''}</span>` : ''}${fat === 2 ? DROP : ''}${crabArt(fat)}</i>`;
 const dotsTip = document.getElementById('dotstip'), ridersEl = document.getElementById('riders');
-let dotsHover = false, dotsSince = 0, dotList = [], ridersTop = Infinity, ridersSide = 0, crabsOn = true;   // crabsOn:菜单里可以关掉
+let dotsHover = false, dotsMouse = false, dotsSince = 0, dotList = [], ridersTop = Infinity, ridersSide = 0, crabsOn = true;   // crabsOn:菜单里可以关掉
 let tipList = [], tipAnchor = null;   // 会话详情里列的会话(和头顶螃蟹同一批);详情挂在哪(头顶螃蟹那一排,没有螃蟹就是头顶)
 let dotsPicked = null, dotsNoteUntil = 0;   // 光标指着的会话(螃蟹或详情里的一行);点了跳不过去的会话时,详情底部的说明显示到什么时候
 function dotSessions() {   // 要显示的会话:干活 / 等你的,加上刚做完或出错不到 1 分钟的;等你的排前面
@@ -786,8 +798,8 @@ function updateRiders() {
   const hidden = !crabsOn || paused || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type);
   dotList = hidden ? [] : dotSessions();
   // 拎着时不显示详情;等你批准的气泡(带按钮)和用量面板开着时也不显示,免得盖住
-  tipList = !crabsOn || paused || permShown || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : dotSessions();   // 和头顶螃蟹同一批:螃蟹走了详情里也不列
-  const html = dotList.slice(0, RIDERS_MAX).map(([sid, x]) => crabSvg(x.state, crabFat(x), sid === dotsPicked)).join('')
+  tipList = (!crabsOn && !kbOpen) || paused || permShown || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : dotSessions();   // 和头顶螃蟹同一批:螃蟹走了详情里也不列
+  const html = dotList.slice(0, RIDERS_MAX).map(([sid, x]) => crabSvg(x.state, crabFat(x), sid === dotsPicked, kidsOf(x))).join('')
     + (dotList.length > RIDERS_MAX ? `<span class="pips">${dotList.slice(RIDERS_MAX).map(([, x]) => `<i class="pip st-${x.state}"></i>`).join('')}</span>` : '');
   if (ridersEl.dataset.html !== html) { ridersEl.dataset.html = html; ridersEl.innerHTML = html; }
   ridersEl.classList.toggle('show', dotList.length > 0);
@@ -985,6 +997,10 @@ function usageHTML(L, vert, nums) {
 }
 let hpUsage = null, hpFromDots = false;   // 这一帧血条该显示的用量(没有就是 null);最近一次悬停是不是在看会话详情
 function updateDots() {   // 光标停在 Clawd 或小螃蟹上时的会话详情
+  if (kbOpen) {   // 用键盘挑会话:详情一直开着,高亮选中的那行;会话都没了 / 15 秒没按键就关掉
+    if (!tipList.length || Date.now() > kbUntil) kbClose();
+    else { kbIdx = Math.min(kbIdx, tipList.length - 1); dotsHover = true; dotsPicked = tipList[kbIdx][0]; }
+  }
   if (!tipList.length) { tipAnchor = null; dotsHover = false; dotsPicked = null; dotsTip.classList.remove('show'); return; }
   // 详情挂在头顶那排螃蟹上;没有螃蟹(会话都在等你回复)时挂在头顶,和血条一个位置
   const an = !dotList.length && petAnchor();
@@ -997,8 +1013,10 @@ function updateDots() {   // 光标停在 Clawd 或小螃蟹上时的会话详�
   const html = PX_FRAME + (u ? `<section class="usage lv${u.hl}">${u.html}</section>` : '') + tipList.map(([sid, s], i) => {
     const time = CC_BUSY.includes(s.state) ? fmtElapsed(now - s.started) : fmtElapsed(now - s.since);
     const ctx = s.ctx >= CTX_FAT ? ` · ${t('上下文 {0}%', Math.min(99, Math.round(s.ctx * 100)))}` : '';   // 快满了才显示
-    return `<div class="row st-${s.state}${sid === dotsPicked ? ' on' : ''}" data-i="${i}"><span>${ccIcon(s.state)}${esc(s.title || s.project || t('会话'))}</span><b>${esc(ccActivity(s, true) + ctx)}</b><i>${time}</i></div>`;
+    const kids = s.agents?.size ? ` · ${t('{0} 个子助手', s.agents.size)}` : '';
+    return `<div class="row st-${s.state}${sid === dotsPicked ? ' on' : ''}" data-i="${i}"><span>${ccIcon(s.state)}${esc(s.title || s.project || t('会话'))}</span><b>${esc(ccActivity(s, true) + kids + ctx)}</b><i>${time}</i></div>`;
   }).join('') + (now < dotsNoteUntil ? `<p class="note">${t('还不知道这个会话在哪个窗口，重开一次就能跳了')}</p>`   // 说明写在详情框里(另弹气泡会被详情框挡住),只占一行,框不会变高把行挤走
+    : kbOpen ? `<p>${t('↑↓ 选择 · ⏎ 跳过去 · esc 关闭')}</p>`
     : tipList.some(([, s]) => s.app) ? `<p>${t('点一下跳到它的窗口')}</p>` : '');
   if (dotsTip.dataset.html !== html) { dotsTip.dataset.html = html; dotsTip.innerHTML = html; }
   const { left, right, top, bottom } = tipAnchor, cx = (left + right) / 2;
@@ -1017,6 +1035,31 @@ function updateDots() {   // 光标停在 Clawd 或小螃蟹上时的会话详�
   dotsTip.classList.toggle('notail', !tail);
   const tp = tail ? `${Math.round(Math.min(tw - 18, Math.max(18, cx - tx)))}px` : '50%';
   if (dotsTip.dataset.tail !== tp) { dotsTip.dataset.tail = tp; dotsTip.style.setProperty('--tail', tp); }
+}
+
+// ⌃⌥⌘C 打开会话详情,用键盘挑:↑ ↓ 选,⏎ 跳过去,Esc 或再按一次 ⌃⌥⌘C 关掉。框开着时主进程才占用这几个键
+let kbOpen = false, kbIdx = 0, kbUntil = 0;
+const KB_KEEP = 15e3;
+function kbClose() { if (!kbOpen) return; kbOpen = false; window.pet?.kbNav(false); }
+function kbOpenList() {
+  if (kbOpen) { kbClose(); return; }
+  if (!dotSessions().length) { say(t('现在没有在跑的会话'), 3); return; }
+  if (permShown) return;   // 批准气泡开着:先处理它(⌥⌘Y / ⌥⌘N)
+  if (bubbleKind === 'usage') hideBubble();
+  kbOpen = true; kbIdx = 0; kbUntil = Date.now() + KB_KEEP;
+  window.pet?.kbNav(true);
+}
+function kbKey(k) {
+  if (!kbOpen) return;
+  kbUntil = Date.now() + KB_KEEP;
+  const n = tipList.length;
+  if (k === 'close' || !n) { kbClose(); return; }
+  if (k === 'up') kbIdx = (kbIdx - 1 + n) % n;
+  else if (k === 'down') kbIdx = (kbIdx + 1) % n;
+  else if (k === 'go') {
+    const s = ccSessions.get(tipList[kbIdx][0]);
+    if (s && jumpSession(s)) kbClose(); else { sfx('poke'); dotsNoteUntil = Date.now() + 4000; }
+  }
 }
 
 // 点小螃蟹或详情里的一行:跳到这个会话所在的窗口(iTerm / Terminal 精确到标签页,Claude App 精确到会话,其他 App 切到最前面)
@@ -1318,6 +1361,7 @@ window.pet?.onCommand(cmd => {
   wake();
   if (cmd === 'minimize') {
     if (press) { press = null; canvas.classList.remove('dragging'); }
+    kbClose();
     for (const p of permQueue.splice(0)) window.pet?.permDecision(p.id, 'pass');   // 收起了就没法点:全部交回终端
     permShown = null; sayLater.length = 0; hideBubble(true);
     setAction({ type: 'leave' });
@@ -1365,6 +1409,20 @@ window.pet?.onCommand(cmd => {
   }
   if (cmd.startsWith('perm-cancel:')) { dropPerm(Number(cmd.slice(12))); return; }
   if (cmd.startsWith('perm-key:')) { decidePerm(cmd.slice(9)); return; }
+  if (cmd === 'kb-open') { kbOpenList(); return; }
+  if (cmd.startsWith('kb:')) { kbKey(cmd.slice(3)); return; }
+  if (cmd.startsWith('display:')) {   // 搬到了另一块屏幕:从光标处(菜单里搬的就从屏幕中间上方)落下
+    const [x, y, w, h] = cmd.slice(8).split(',').map(Number);
+    if (press) { press = null; canvas.classList.remove('dragging'); }
+    if (isClinging()) window.pet?.setClinging(false);
+    Wpx = w; Hpx = h;
+    root.rotation.z = 0;
+    st.x = Math.min(maxX(), Math.max(minX(), x / S)); st.y = Math.max(0, (h - y) / S);
+    st.vx = st.vy = 0; st.air = true;
+    feet.forEach((f, i) => { f.x = st.x + REST_X[i]; f.y = st.y - LEG_L; f.vx = f.vy = 0; f.swing = null; });
+    setAction({ type: 'fall' });
+    return;
+  }
   if (action.type === 'drag' || action.type === 'leave') return;
   if (isClinging() && ['jump', 'wave', 'dance', 'lean', 'walk', 'home'].includes(cmd)) stopCling();
   if (cmd === 'passthrough-on') { passthrough = true; interactive = false; canvas.classList.remove('ghost'); return; }
@@ -1426,22 +1484,23 @@ window.pet?.onCursor(p => {
   const now = nowSec();
   const moved = p.x !== cursor.x || p.y !== cursor.y;
   if (moved) cursor.at = now;
-  cursor.x = p.x; cursor.y = p.y;
+  cursor.x = p.x; cursor.y = p.y; cursor.other = !!p.other;   // other:光标在别的屏幕上
   if (moved && targetFps() >= 55) wake();
   if (paused) return;
 
   const onPet = hitTest(p.x, p.y);
   if (tipAnchor) {   // 光标在会话小螃蟹或「!」上(多留 6px 余量),或者在 Clawd 身上停住:显示每个会话的详情(额度在第一行)
-    const was = dotsHover, r = tipAnchor;
+    const was = dotsMouse, r = tipAnchor;
     const onBody = onPet && hovering && now - hoverSince >= HOVER_INTENT;   // 只是路过不算,免得详情一闪
     // 详情开着时,从螃蟹到详情框之间(连同详情框)都算,光标移过去点某一行时详情不会收起
     const span = was && dotsTip.classList.contains('show') && (() => { const d = dotsTip.getBoundingClientRect();
       return { left: Math.min(r.left, d.left), right: Math.max(r.right, d.right), top: Math.min(r.top, d.top), bottom: Math.max(r.bottom, d.bottom) }; })();
-    dotsHover = onBody || (dotList.length && nearRect(r, p.x, p.y, 6)) || (span && nearRect(span, p.x, p.y, 6));
-    if (dotsHover && !was) dotsSince = now;
-    if (dotsHover && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }   // 在看详情:别走开
-  } else dotsHover = false;
-  dotsPicked = dotsHover ? dotsPick(p.x, p.y) : null;
+    dotsMouse = !!(onBody || (dotList.length && nearRect(r, p.x, p.y, 6)) || (span && nearRect(span, p.x, p.y, 6)));
+    if (dotsMouse && !was) dotsSince = now;
+    if (dotsMouse && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }   // 在看详情:别走开
+  } else dotsMouse = false;
+  dotsHover = dotsMouse || kbOpen;   // 用键盘挑会话时详情也开着,但光标不在上面就不接收点击
+  dotsPicked = kbOpen ? tipList[kbIdx]?.[0] ?? null : dotsHover ? dotsPick(p.x, p.y) : null;
   document.body.classList.toggle('picking', !!dotsPicked);
   if (permShown || bubbleKind === 'usage') {   // 光标在批准气泡 / 用量面板上:变成可点,Clawd 也别走开
     const was = bubbleHover;
@@ -1452,7 +1511,7 @@ window.pet?.onCursor(p => {
   if (onPet && !hovering) hoverSince = now;
   hovering = onPet;
   // 光标停在小螃蟹上也一样变成可点(点一下跳到会话窗口)
-  const want = action.type === 'drag' || (!passthrough && ((onPet && now - hoverSince >= HOVER_INTENT) || (dotsHover && now - dotsSince >= HOVER_INTENT) || (bubbleHover && now - bubbleSince >= HOVER_INTENT)));
+  const want = action.type === 'drag' || (!passthrough && ((onPet && now - hoverSince >= HOVER_INTENT) || (dotsMouse && now - dotsSince >= HOVER_INTENT) || (bubbleHover && now - bubbleSince >= HOVER_INTENT)));
   if (want !== interactive) {
     interactive = want;
     window.pet.setIgnore(!want);
@@ -1461,7 +1520,7 @@ window.pet?.onCursor(p => {
   canvas.classList.toggle('ghost', onPet && !interactive && action.type !== 'drag');
 
   const px = st.x * S, groundY = Hpx - st.y * S;
-  const near = !onPet && !dotsHover && !bubbleHover && st.y < 0.5
+  const near = !onPet && !dotsMouse && !bubbleHover && st.y < 0.5
     && Math.abs(p.x - px) < BW * S / 2 + 120
     && p.y > groundY - (LEG_L + BH) * S - 140 && p.y < groundY + 40;
   if (!near) nearSince = 0;
@@ -1516,6 +1575,13 @@ function release() {
   if (!press) return;
   canvas.classList.remove('dragging');
   if (press.moved) {
+    if (cursor.other) {   // 拖到了别的屏幕上:主进程把窗口搬过去,Clawd 从光标处落下(见 'display:')
+      press = null;
+      st.vx = st.vy = 0; st.air = true;
+      setAction({ type: 'fall' });
+      window.pet?.dropDisplay();
+      return;
+    }
     const EDGE = 60;
     if (press.lastX <= EDGE || press.lastX >= Wpx - EDGE) {
       press = null;
