@@ -2082,13 +2082,13 @@ function frame() {
   if (hpUsage && action.type !== 'drag' && !(tipList.length && (dotsHover || tipSoon || (hpFromDots && t < hpHoverUntil)))) {   // 拎着时不显示;在看会话详情时,用量并进详情框里,不单独显示(移开后也别再单独冒出来)
     const vert = isClinging();
     const { html, hl } = usageHTML(L, vert, t < hpHoverUntil);   // 鼠标悬停时(移开后 1.5 秒内)把两个百分比都显示出来
-    if (badge.dataset.key !== html) { badge.dataset.key = html; badge.innerHTML = html; }
+    if (badge.dataset.key !== html) { badge.dataset.key = html; badge.innerHTML = PX_FRAME + html; }
     const cls = 'show lv' + hl + (vert ? ' vert' : '');
     if (badge.className !== cls) badge.className = cls;
     const bw = badge.offsetWidth, bh = badge.offsetHeight, an = petAnchor();
     // 站着:挂在头顶;贴边:露出来的身体太窄,挂到身体朝屏幕里的那一侧
-    const bx = isClinging() ? (action.side > 0 ? an.left - bw - 10 - ridersSide : an.right + 10 + ridersSide) : an.x - bw / 2;
-    const by = isClinging() ? an.midY - bh / 2 : petTop(an) - bh - 8;   // 头上趴着螃蟹时挂到它们上面
+    const bx = isClinging() ? (action.side > 0 ? an.left - bw - 13 - ridersSide : an.right + 13 + ridersSide) : an.x - bw / 2;
+    const by = isClinging() ? an.midY - bh / 2 : petTop(an) - bh - 11;   // 头上趴着螃蟹时挂到它们上面;像素外框往外多 3px
     setTransform(badge, `translate(${Math.round(Math.min(Wpx - bw - 8, Math.max(8, bx)))}px, ${Math.round(Math.min(Hpx - bh - 8, Math.max(8, by)))}px)`);
   } else if (badge.classList.contains('show')) {
     badge.classList.remove('show');   // 只去掉 show,保留竖排等样式,淡出时不会从竖条跳成横条
