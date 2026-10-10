@@ -1,0 +1,92 @@
+# 临时:用自签证书在 macOS 上跑一遍签名流程,验证完就删
+name: Verify signing (temporary)
+
+on:
+  pull_request:
+
+jobs:
+  mac:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: clawd-pet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: clawd-pet/package-lock.json
+
+      - name: 生成自签的代码签名证书
+        id: cert
+        run: |
+          cd "$RUNNER_TEMP"
+          cat > cs.cnf <<'CNF'
+          [req]
+          distinguished_name=dn
+          x509_extensions=ext
+          prompt=no
+          [dn]
+          CN=Clawd Test Signing
+          [ext]
+          basicConstraints=critical,CA:false
+          keyUsage=critical,digitalSignature
+          extendedKeyUsage=critical,codeSigning
+          CNF
+          /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 2 -config cs.cnf
+          /usr/bin/openssl pkcs12 -export -inkey key.pem -in cert.pem -out cert.p12 -passout pass:testpw
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain cert.pem
+          echo "MACOS_CERTIFICATE=$(base64 -i cert.p12 | tr -d '\n')" >> "$GITHUB_ENV"
+
+      # 和 release.yml 里的步骤一样
+      - name: 导入签名证书到临时钥匙串
+        env:
+          CERT: ${{ env.MACOS_CERTIFICATE }}
+          CERT_PASSWORD: testpw
+        run: |
+          kc="$RUNNER_TEMP/build.keychain-db"
+          kcpw=$(openssl rand -hex 16)
+          echo "$CERT" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$kcpw" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$kcpw" "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpw" "$kc" > /dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          security find-identity -v -p codesigning "$kc"
+
+      - run: npm ci
+
+      - name: 打包并签名(不公证)
+        env:
+          CLAWD_SIGN_IDENTITY: Clawd Test Signing
+        run: npm run package
+
+      - name: 检查签名
+        run: |
+          app=dist/Clawd-darwin-arm64/Clawd.app
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dvv "$app" 2>&1 | tee sig.txt
+          grep -q 'flags=0x10000(runtime)' sig.txt
+          codesign -d --entitlements - "$app" 2>&1 | tee ent.txt
+          grep -q automation.apple-events ent.txt
+          grep -q allow-jit ent.txt
+          for h in "$app"/Contents/Frameworks/*.app; do echo "== $h"; codesign -d --entitlements - "$h" 2>&1 | grep -o 'com.apple[^<]*' || true; done
+          spctl --assess --type execute --verbose=4 "$app" || echo "(自签证书过不了 Gatekeeper,正常)"
+
+      - name: 启动签名后的 App,看会不会崩
+        run: |
+          app=dist/Clawd-darwin-arm64/Clawd.app
+          "$app/Contents/MacOS/Clawd" > run.log 2>&1 &
+          pid=$!
+          sleep 15
+          kill -0 $pid || { echo "App 退出了"; cat run.log; exit 1; }
+          echo "15 秒后仍在运行"
+          curl -s -o /dev/null -w 'hook 服务 HTTP %{http_code}\n' -X POST http://127.0.0.1:47615/hook -H 'content-type: application/json' -d '{}' || true
+          kill $pid
+          tail -20 run.log
+
+      - name: 压缩
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Clawd-darwin-arm64/Clawd.app dist/test.zip && ls -lh dist/test.zip
