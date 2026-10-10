@@ -38,9 +38,13 @@ If the installed Clawd is running, quit it first (only one instance can run), or
 
 ## Releasing (maintainers)
 
-Releases are built by the **Release** workflow (`.github/workflows/release.yml`): push a tag like `v1.2.0` that matches `version` in `clawd-pet/package.json`, and it packages, signs with a Developer ID certificate, notarizes, staples and uploads `Clawd-<version>-macos-arm64.zip` to a draft release with that tag.
+Releases are built by the **Release** workflow (`.github/workflows/release.yml`): push a tag like `v1.2.0` that matches `version` in `clawd-pet/package.json`, and it packages `Clawd-<version>-macos-arm64.zip` and uploads it to a draft release with that tag. The app is unsigned, so users still need the `xattr` step from the README.
 
-It needs these repository secrets (Settings → Secrets and variables → Actions):
+### Optional: signing and notarization
+
+Signing needs a paid Apple Developer Program membership; the project doesn't have one. If these repository secrets are set, the same workflow also signs with a Developer ID certificate, notarizes and staples the app, so users can open it without `xattr`.
+
+The secrets (Settings → Secrets and variables → Actions):
 
 | Secret | What it is |
 | --- | --- |
