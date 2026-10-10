@@ -39,4 +39,9 @@ export const state = {
   propOverride: null,   // 开发自测:临时拿某个道具
   propOverrideUntil: 0,
   dotsMouse: false,   // 光标真的在会话小螃蟹 / 会话详情上(用键盘挑会话时 dotsHover 也为真)
+  // 一阵子的装扮(Date.now() 毫秒):push 后背火箭背包、测试连过挂金牌、连着失败撑伞、构建 / 装依赖拿扳手
+  jetpackUntil: 0,
+  medalUntil: 0,
+  rainUntil: 0,
+  wrenchUntil: 0,
 };

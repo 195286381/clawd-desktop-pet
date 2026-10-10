@@ -5,7 +5,8 @@ import { S } from './scene.js';
 import { BH, BW, LEG_L } from './model.js';
 import { Hpx, maxX, minX, st } from './world.js';
 import { mood } from './quota.js';
-import { ccWorking } from './sessions.js';
+import { CC_BUSY, ccSessions, ccWorking } from './sessions.js';
+import { cmdKind } from './reactions.js';
 import { dotList } from './crabs.js';
 
 // ---------------- 贴边 ----------------
@@ -32,25 +33,49 @@ export function stopCling() {
 // ---------------- 行为 ----------------
 export let action = { type: 'rest', t: 0, dur: 1.5 };
 
+// Claude 这会儿在干什么(取最近有动静、还在忙的那个会话):决定抱电脑敲键盘、托腮、举放大镜、戴眼镜、拿扳手、系围裙
+const TYPING = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit'], SEARCH = ['Grep', 'Glob'], READING = ['Read', 'WebFetch', 'WebSearch'];
+export const LONG_RUN = 10 * 60e3;   // 一轮任务跑这么久算"憋大招"
+export function ccNow() {
+  if (!prefs.ccHooks) return null;
+  let x = null;
+  for (const s of ccSessions.values()) if (CC_BUSY.includes(s.state) && (!x || s.last > x.last)) x = s;
+  if (!x) return null;
+  const tool = x.state === 'tool' ? x.tool : '', kind = tool === 'Bash' ? cmdKind(x.detail) : '';   // 命令短时 detail 就是命令本身
+  return {
+    thinking: x.state === 'thinking', typing: TYPING.includes(tool), search: SEARCH.includes(tool), reading: READING.includes(tool),
+    building: kind === 'build' || kind === 'install', long: Date.now() - x.started > LONG_RUN,
+  };
+}
+export const lateNight = () => new Date().getHours() < 5;   // 0–5 点还在用:站着打瞌睡
+
 function pickAction() {
   if (state.interactive || state.permShown) return { type: 'rest', dur: 1 };   // 光标停在它身上 / 等你点批准按钮:乖乖待着,方便点
   if (!prefs.wander) return { type: 'rest', dur: 3 };
   const r = Math.random();
   if (mood === 4 || state.userAway) return { type: 'sleep' };     // 额度用完 / 你不在电脑前:睡觉
-  if (prefs.ccHooks && ccWorking() && r < 0.65) return { type: 'rest', dur: rand(5, 10) };   // Claude 在干活:多抱着电脑待着
+  if (prefs.ccHooks && ccWorking() && r < 0.65) {   // Claude 在干活:多抱着电脑待着;在想事就托腮,在搜索就举放大镜
+    const cc = ccNow();
+    if (cc?.thinking && !cc.long) return { type: 'think', dur: rand(4, 7) };
+    if (cc?.search) return { type: 'search', dur: rand(4, 7) };
+    return { type: 'rest', dur: rand(5, 10) };
+  }
   if (mood === 3) {
     // 快没电了:很少走动,大多趴着
     if (r < 0.15) return pickWalk();
-    if (r < 0.7) return { type: 'flop', dur: rand(6, 12) };
+    if (r < 0.55) return { type: 'flop', dur: rand(6, 12) };
+    if (r < 0.7) return { type: 'nod', dur: rand(4, 6) };
     return { type: 'rest', dur: rand(3, 6) };
   }
   if (mood === 2) {
     // 累了:少走动,不蹦不跳,常趴下打盹
     if (r < 0.3) return pickWalk();
-    if (r < 0.62) return { type: 'flop', dur: rand(4, 8) };
+    if (r < 0.5) return { type: 'flop', dur: rand(4, 8) };
+    if (r < 0.62) return { type: 'nod', dur: rand(4, 6) };
     if (r < 0.72) return { type: 'lean', dir: Math.random() < 0.5 ? -1 : 1, dur: 2.2 };
     return { type: 'rest', dur: rand(3, 6) };
   }
+  if (lateNight() && r >= 0.9) return { type: 'nod', dur: rand(4, 6) };   // 深夜:偶尔站着打瞌睡
   if (mood === 1 && r >= 0.62 && r < 0.72) return { type: 'flop', dur: rand(3, 5) };   // 忙的时候偶尔歇一会
   if (r < 0.42) {
     let tx, n = 0;

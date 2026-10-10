@@ -101,6 +101,11 @@ window.pet?.onCommand(cmd => {
   if (cmd === 'stretch') { if (!isClinging()) setAction({ type: 'stretch', dur: 3 }); return; }
   if (cmd.startsWith('sfx:')) { const was = prefs.soundOn; prefs.soundOn = true; sfx(cmd.slice(4)); prefs.soundOn = was; return; }   // 开发自测:试听
   if (cmd.startsWith('face:')) { flashFace(cmd.slice(5), 6); return; }
+  if (cmd.startsWith('act:')) {   // 开发自测:直接做某个动作(act:flip 是后空翻)
+    const type = cmd.slice(4);
+    if (!isClinging()) setAction(type === 'flip' ? { type: 'jump', dir: 0, big: true, flip: true } : { type, dur: 5, dir: Math.random() < 0.5 ? -1 : 1 });
+    return;
+  }
   if (cmd.startsWith('prop:')) { state.propOverride = cmd.slice(5); state.propOverrideUntil = clock.elapsedTime + 6; return; }
   if (cmd === 'usage') { showUsage(); if (!isClinging()) setAction({ type: 'present', dur: 2.4 }); return; }
   if (cmd === 'jump') setAction({ type: 'jump', dir: Math.random() < 0.5 ? -1 : 1 });

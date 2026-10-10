@@ -117,7 +117,7 @@ A finished crab hops off, waves and crawls away; an errored one flips belly-up, 
 
 In **newly started** Claude Code sessions:
 
-- **Claude is working** — Clawd pulls out a little laptop and works along with you; its self-talk says what Claude is doing, e.g. "Claude is running a command: npm test…"
+- **Claude is working** — Clawd pulls out a little laptop and works along with you; its self-talk says what Claude is doing, e.g. "Claude is running a command: npm test…". It looks different depending on the work: typing fast while Claude edits files; chin in hand with a "…" overhead while Claude is thinking; peering through a magnifying glass while it searches; round glasses while it reads files or the web; a wrench during builds and installs; and after 10+ minutes on one task, an apron, a spatula and a frying pan
 - **A reply is done** (tasks over 15 s) — Clawd jumps and reports "Claude is done ✅" with the project name
 - **Claude needs approval / is waiting for you / has a question** — Clawd waves, e.g. "🙋 Wants to use Bash — needs your approval"
 - **Still waiting** — after 3 minutes it waves again, then every 5 minutes, at most 3 times
@@ -134,13 +134,13 @@ In **newly started** Claude Code sessions:
 
 | Claude runs… | Clawd… |
 |---|---|
-| Tests that pass (`npm test`, `pytest`, `go test`, `cargo test`, …) | jumps with star eyes and throws confetti |
-| Tests that fail | slumps with a crying face |
-| A successful `git push` | launches like a rocket in a puff of smoke |
+| Tests that pass (`npm test`, `pytest`, `go test`, `cargo test`, …) | jumps with star eyes (sometimes a backflip) and throws confetti; three passes in a row earn a gold medal |
+| Tests that fail | slumps with a crying face; after two failed test or build runs in a row a little rain cloud follows it and it opens an umbrella, until the next pass |
+| A successful `git push` | straps on a jetpack and launches like a rocket (sometimes with a backflip) in a puff of smoke |
 | `rm -rf` | shivers and sweats |
 | `git push --force` | shivers longer, dizzy eyes |
 | `git commit` | a small happy hop |
-| `npm install`, `pip install`, … | a few boxes drop onto its head |
+| `npm install`, `pip install`, … | a few boxes drop onto its head, and it grabs a wrench |
 | A build that succeeds (`npm run build`, `cargo build`, `make`, …) | hops and sparkles |
 | A build that fails | slumps with a crying face |
 | `docker build` / `run` / `up` | winks and blows blue bubbles |
@@ -204,12 +204,12 @@ When the quota resets, it dances to celebrate. Without quota data (API key), the
 
 <p align="center"><img src="docs/showcase.png" width="760" alt="Clawd in different states: quota bar overhead, reporting a finished task, talking to itself, being petted, looking cool, typing on a laptop with you, sleeping when quota runs out, Halloween outfit"></p>
 
-- **Lives on your desktop** — strolls along the bottom of the screen, looks around, hops, waves; its eyes follow your mouse
-- **Play with it** — click and it pops up the usage panel; drag it and it flails; toss it hard and it bounces and gets dizzy; rest the cursor on it for heart eyes; poke it 4 times and it gets annoyed
+- **Lives on your desktop** — strolls along the bottom of the screen, looks around, hops, waves; its eyes follow your mouse. Now and then it trips, lies there dizzy and gets back up; late at night (0–5 am) or when tired it nods off standing up and jolts awake; the first time it sees you each day (when you come back to your computer) it bows
+- **Play with it** — click and it pops up the usage panel; drag it and it flails; toss it hard and it bounces and gets dizzy; rest the cursor on it for heart eyes, and keep petting it and it spins around; poke it 4 times and it gets annoyed
 - **Edge-cling mode** — drop it at the left or right edge and it hangs there sideways, just peeking out; it leans out when the cursor comes near
 - **Multiple displays** — drag it onto another display and let go, and it moves there (and stays there next launch); if that display is unplugged it goes back to the main one. Or use **Position → Move to next display**
 - **Lots of faces** — `> <`, `^ ^`, `x x`, sunglasses, heart eyes, star eyes, `$ $`, crying, winking…
-- **Props** — nightcap, party hat, headphones, a laptop while you code, morning coffee; a witch hat for Halloween, Santa hat for Christmas, red scarf for Lunar New Year
+- **Props** — nightcap, party hat, headphones, a laptop while you code, morning coffee, plus the magnifier, glasses, wrench, apron, jetpack, medal and umbrella above; a beanie in winter (Dec–Feb) and a straw hat in summer (Jun–Aug); a witch hat for Halloween, Santa hat for Christmas, red scarf for Lunar New Year, heart antennae on Valentine's Day, bunny ears and a mooncake for Mid-Autumn. Seasonal hats switch on and off with **Appearance → Holiday outfits**. No hats while session crabs ride on its head
 - **Self-talk** — remarks on the time of day, your quota and how hard you've been working, in pixel speech bubbles with the [Ark Pixel](https://github.com/TakWolf/ark-pixel-font) font
 - **Optional 8-bit sound** — synthesized blips for hops, landings and alerts (off by default)
 - **Five sizes** — mini / small / medium / large / extra large
