@@ -6,7 +6,7 @@ import { CW, SCALE } from './scene.js';
 import { headTopScreen, petAnchor } from './anchor.js';
 import { Hpx, Wpx } from './world.js';
 import { sfx } from './sfx.js';
-import { PX_FRAME, bubbleKind } from './bubble.js';
+import { PX_FRAME, bubbleKind, hideBubble, say } from './bubble.js';
 import { hpUsage, usageHTML } from './hud.js';
 import { CC_BUSY, ccActivity, ccIcon, ccPurge, ccSessions } from './sessions.js';
 import { crabLeave, packTop, ridersPop } from './fx.js';
@@ -33,8 +33,18 @@ export const crabArt = fat => {
 };
 const BANG = '<svg class="bang" viewBox="0 0 1 6" width="2" height="12"><rect width="1" height="4"/><rect y="5" width="1" height="1"/></svg>';   // 像素「!」
 const DROP = '<svg class="drop" viewBox="0 0 2 3" width="4" height="6"><rect width="1" height="1"/><rect y="1" width="2" height="2"/></svg>';   // 像素汗珠
-const crabSvg = (state, fat, lift) =>   // 等你的那只头顶一个「!」;快满的那只冒汗;光标指着的那只抬起来
-  `<i class="rider st-${state}${lift ? ' lift' : ''}">${state === 'ask' || state === 'waiting' ? BANG : ''}${fat === 2 ? DROP : ''}${crabArt(fat)}</i>`;
+// 子助手:派出它们的那只背上驮一只 5×3 像素的小螃蟹,不止一个时旁边写像素数字「×2」「×3」
+const KID = '<svg class="kid" viewBox="0 0 5 3" width="10" height="6"><path d="M1 0h3v1H1zM0 1h5v1H0zM0 2h1v1H0zM2 2h1v1H2zM4 2h1v1H4z"/></svg>';
+const DIGITS = { x: ['...', '#.#', '.#.', '#.#', '...'], 0: ['###', '#.#', '#.#', '#.#', '###'], 1: ['.#.', '##.', '.#.', '.#.', '###'],
+  2: ['###', '..#', '###', '#..', '###'], 3: ['###', '..#', '###', '..#', '###'], 4: ['#.#', '#.#', '###', '..#', '..#'], 5: ['###', '#..', '###', '..#', '###'],
+  6: ['###', '#..', '###', '#.#', '###'], 7: ['###', '..#', '..#', '..#', '..#'], 8: ['###', '#.#', '###', '#.#', '###'], 9: ['###', '#.#', '###', '..#', '###'] };
+const pxText = str => {   // 3×5 像素字,每格 1px,字间空 1px
+  const rects = [...str].flatMap((c, k) => DIGITS[c].flatMap((row, y) => [...row].map((p, x) => (p === '#' ? `<rect x="${k * 4 + x}" y="${y}" width="1" height="1"/>` : ''))));
+  return `<svg class="kn" viewBox="0 0 ${str.length * 4 - 1} 5" width="${str.length * 4 - 1}" height="5">${rects.join('')}</svg>`;
+};
+const kidsOf = x => x.agents?.size || 0;
+const crabSvg = (state, fat, lift, kids) =>   // 等你的那只头顶一个「!」;快满的那只冒汗;光标指着的那只抬起来;背上驮着子助手
+  `<i class="rider st-${state}${lift ? ' lift' : ''}">${state === 'ask' || state === 'waiting' ? BANG : ''}${kids ? `<span class="kids">${KID}${kids > 1 ? pxText('x' + kids) : ''}</span>` : ''}${fat === 2 ? DROP : ''}${crabArt(fat)}</i>`;
 export const dotsTip = document.getElementById('dotstip'), ridersEl = document.getElementById('riders');
 export let dotList = [], ridersTop = Infinity, ridersSide = 0;
 export let tipList = [], tipAnchor = null;   // 会话详情里列的会话(和头顶螃蟹同一批);详情挂在哪(头顶螃蟹那一排,没有螃蟹就是头顶)
@@ -53,8 +63,8 @@ export function updateRiders() {
   const hidden = !prefs.crabsOn || state.paused || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type);
   dotList = hidden ? [] : dotSessions();
   // 拎着时不显示详情;等你批准的气泡(带按钮)和用量面板开着时也不显示,免得盖住
-  tipList = !prefs.crabsOn || state.paused || state.permShown || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : dotSessions();   // 和头顶螃蟹同一批:螃蟹走了详情里也不列
-  const html = dotList.slice(0, RIDERS_MAX).map(([sid, x]) => crabSvg(x.state, crabFat(x), sid === state.dotsPicked)).join('')
+  tipList = (!prefs.crabsOn && !kbOpen) || state.paused || state.permShown || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : dotSessions();   // 和头顶螃蟹同一批:螃蟹走了详情里也不列
+  const html = dotList.slice(0, RIDERS_MAX).map(([sid, x]) => crabSvg(x.state, crabFat(x), sid === state.dotsPicked, kidsOf(x))).join('')
     + (dotList.length > RIDERS_MAX ? `<span class="pips">${dotList.slice(RIDERS_MAX).map(([, x]) => `<i class="pip st-${x.state}"></i>`).join('')}</span>` : '');
   if (ridersEl.dataset.html !== html) { ridersEl.dataset.html = html; ridersEl.innerHTML = html; }
   ridersEl.classList.toggle('show', dotList.length > 0);
@@ -88,6 +98,10 @@ function trackLeavers(hidden, rot) {
 // 头顶最高处:身体 / 道具的顶边,头上趴着螃蟹时取螃蟹(连同「!」)的顶边。血条、气泡都挂在它上面
 export const petTop = an => Math.min(an.top, ridersTop - 4, packTop - 4);
 export function updateDots() {   // 光标停在 Clawd 或小螃蟹上时的会话详情
+  if (kbOpen) {   // 用键盘挑会话:详情一直开着,高亮选中的那行;会话都没了 / 15 秒没按键就关掉
+    if (!tipList.length || Date.now() > kbUntil) kbClose();
+    else { kbIdx = Math.min(kbIdx, tipList.length - 1); state.dotsHover = true; state.dotsPicked = tipList[kbIdx][0]; }
+  }
   if (!tipList.length) { tipAnchor = null; state.dotsHover = false; state.dotsPicked = null; dotsTip.classList.remove('show'); return; }
   // 详情挂在头顶那排螃蟹上;没有螃蟹(会话都在等你回复)时挂在头顶,和血条一个位置
   const an = !dotList.length && petAnchor();
@@ -100,8 +114,10 @@ export function updateDots() {   // 光标停在 Clawd 或小螃蟹上时的会�
   const html = PX_FRAME + (u ? `<section class="usage lv${u.hl}">${u.html}</section>` : '') + tipList.map(([sid, s], i) => {
     const time = CC_BUSY.includes(s.state) ? fmtElapsed(now - s.started) : fmtElapsed(now - s.since);
     const ctx = s.ctx >= CTX_FAT ? ` · ${t('上下文 {0}%', Math.min(99, Math.round(s.ctx * 100)))}` : '';   // 快满了才显示
-    return `<div class="row st-${s.state}${sid === state.dotsPicked ? ' on' : ''}" data-i="${i}"><span>${ccIcon(s.state)}${esc(s.title || s.project || t('会话'))}</span><b>${esc(ccActivity(s, true) + ctx)}</b><i>${time}</i></div>`;
+    const kids = s.agents?.size ? ` · ${t('{0} 个子助手', s.agents.size)}` : '';
+    return `<div class="row st-${s.state}${sid === state.dotsPicked ? ' on' : ''}" data-i="${i}"><span>${ccIcon(s.state)}${esc(s.title || s.project || t('会话'))}</span><b>${esc(ccActivity(s, true) + kids + ctx)}</b><i>${time}</i></div>`;
   }).join('') + (now < dotsNoteUntil ? `<p class="note">${t('还不知道这个会话在哪个窗口，重开一次就能跳了')}</p>`   // 说明写在详情框里(另弹气泡会被详情框挡住),只占一行,框不会变高把行挤走
+    : kbOpen ? `<p>${t('↑↓ 选择 · ⏎ 跳过去 · esc 关闭')}</p>`
     : tipList.some(([, s]) => s.app) ? `<p>${t('点一下跳到它的窗口')}</p>` : '');
   if (dotsTip.dataset.html !== html) { dotsTip.dataset.html = html; dotsTip.innerHTML = html; }
   const { left, right, top, bottom } = tipAnchor, cx = (left + right) / 2;
@@ -120,6 +136,31 @@ export function updateDots() {   // 光标停在 Clawd 或小螃蟹上时的会�
   dotsTip.classList.toggle('notail', !tail);
   const tp = tail ? `${Math.round(Math.min(tw - 18, Math.max(18, cx - tx)))}px` : '50%';
   if (dotsTip.dataset.tail !== tp) { dotsTip.dataset.tail = tp; dotsTip.style.setProperty('--tail', tp); }
+}
+
+// ⌃⌥⌘C 打开会话详情,用键盘挑:↑ ↓ 选,⏎ 跳过去,Esc 或再按一次 ⌃⌥⌘C 关掉。框开着时主进程才占用这几个键
+export let kbOpen = false, kbIdx = 0, kbUntil = 0;
+const KB_KEEP = 15e3;
+export function kbClose() { if (!kbOpen) return; kbOpen = false; window.pet?.kbNav(false); }
+export function kbOpenList() {
+  if (kbOpen) { kbClose(); return; }
+  if (!dotSessions().length) { say(t('现在没有在跑的会话'), 3); return; }
+  if (state.permShown) return;   // 批准气泡开着:先处理它(⌥⌘Y / ⌥⌘N)
+  if (bubbleKind === 'usage') hideBubble();
+  kbOpen = true; kbIdx = 0; kbUntil = Date.now() + KB_KEEP;
+  window.pet?.kbNav(true);
+}
+export function kbKey(k) {
+  if (!kbOpen) return;
+  kbUntil = Date.now() + KB_KEEP;
+  const n = tipList.length;
+  if (k === 'close' || !n) { kbClose(); return; }
+  if (k === 'up') kbIdx = (kbIdx - 1 + n) % n;
+  else if (k === 'down') kbIdx = (kbIdx + 1) % n;
+  else if (k === 'go') {
+    const s = ccSessions.get(tipList[kbIdx][0]);
+    if (s && jumpSession(s)) kbClose(); else { sfx('poke'); dotsNoteUntil = Date.now() + 4000; }
+  }
 }
 
 // 点小螃蟹或详情里的一行:跳到这个会话所在的窗口(iTerm / Terminal 精确到标签页,Claude App 精确到会话,其他 App 切到最前面)

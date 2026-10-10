@@ -9,7 +9,7 @@ import { Hpx, Wpx, cursor, maxX, minX, st } from './world.js';
 import { sfx } from './sfx.js';
 import { bubble, bubbleKind, hideBubble, say } from './bubble.js';
 import { mood, showUsage } from './quota.js';
-import { dotList, dotsPick, dotsTip, tipAnchor } from './crabs.js';
+import { dotList, dotsPick, dotsTip, kbIdx, kbOpen, tipAnchor, tipList } from './crabs.js';
 import { action, isClinging, setAction, startCling } from './behavior.js';
 import { targetFps, wake } from './loop.js';
 
@@ -39,22 +39,23 @@ window.pet?.onCursor(p => {
   const now = nowSec();
   const moved = p.x !== cursor.x || p.y !== cursor.y;
   if (moved) cursor.at = now;
-  cursor.x = p.x; cursor.y = p.y;
+  cursor.x = p.x; cursor.y = p.y; cursor.other = !!p.other;   // other:光标在别的屏幕上
   if (moved && targetFps() >= 55) wake();
   if (state.paused) return;
 
   const onPet = hitTest(p.x, p.y);
   if (tipAnchor) {   // 光标在会话小螃蟹或「!」上(多留 6px 余量),或者在 Clawd 身上停住:显示每个会话的详情(额度在第一行)
-    const was = state.dotsHover, r = tipAnchor;
+    const was = state.dotsMouse, r = tipAnchor;
     const onBody = onPet && state.hovering && now - hoverSince >= HOVER_INTENT;   // 只是路过不算,免得详情一闪
     // 详情开着时,从螃蟹到详情框之间(连同详情框)都算,光标移过去点某一行时详情不会收起
     const span = was && dotsTip.classList.contains('show') && (() => { const d = dotsTip.getBoundingClientRect();
       return { left: Math.min(r.left, d.left), right: Math.max(r.right, d.right), top: Math.min(r.top, d.top), bottom: Math.max(r.bottom, d.bottom) }; })();
-    state.dotsHover = onBody || (dotList.length && nearRect(r, p.x, p.y, 6)) || (span && nearRect(span, p.x, p.y, 6));
-    if (state.dotsHover && !was) state.dotsSince = now;
-    if (state.dotsHover && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }   // 在看详情:别走开
-  } else state.dotsHover = false;
-  state.dotsPicked = state.dotsHover ? dotsPick(p.x, p.y) : null;
+    state.dotsMouse = !!(onBody || (dotList.length && nearRect(r, p.x, p.y, 6)) || (span && nearRect(span, p.x, p.y, 6)));
+    if (state.dotsMouse && !was) state.dotsSince = now;
+    if (state.dotsMouse && action.type === 'walk') { st.vx = 0; setAction({ type: 'rest', dur: 2.5 }); }   // 在看详情:别走开
+  } else state.dotsMouse = false;
+  state.dotsHover = state.dotsMouse || kbOpen;   // 用键盘挑会话时详情也开着,但光标不在上面就不接收点击
+  state.dotsPicked = kbOpen ? tipList[kbIdx]?.[0] ?? null : state.dotsHover ? dotsPick(p.x, p.y) : null;
   document.body.classList.toggle('picking', !!state.dotsPicked);
   if (state.permShown || bubbleKind === 'usage') {   // 光标在批准气泡 / 用量面板上:变成可点,Clawd 也别走开
     const was = state.bubbleHover;
@@ -65,7 +66,7 @@ window.pet?.onCursor(p => {
   if (onPet && !state.hovering) hoverSince = now;
   state.hovering = onPet;
   // 光标停在小螃蟹上也一样变成可点(点一下跳到会话窗口)
-  const want = action.type === 'drag' || (!prefs.passthrough && ((onPet && now - hoverSince >= HOVER_INTENT) || (state.dotsHover && now - state.dotsSince >= HOVER_INTENT) || (state.bubbleHover && now - bubbleSince >= HOVER_INTENT)));
+  const want = action.type === 'drag' || (!prefs.passthrough && ((onPet && now - hoverSince >= HOVER_INTENT) || (state.dotsMouse && now - state.dotsSince >= HOVER_INTENT) || (state.bubbleHover && now - bubbleSince >= HOVER_INTENT)));
   if (want !== state.interactive) {
     state.interactive = want;
     window.pet.setIgnore(!want);
@@ -74,7 +75,7 @@ window.pet?.onCursor(p => {
   canvas.classList.toggle('ghost', onPet && !state.interactive && action.type !== 'drag');
 
   const px = st.x * S, groundY = Hpx - st.y * S;
-  const near = !onPet && !state.dotsHover && !state.bubbleHover && st.y < 0.5
+  const near = !onPet && !state.dotsMouse && !state.bubbleHover && st.y < 0.5
     && Math.abs(p.x - px) < BW * S / 2 + 120
     && p.y > groundY - (LEG_L + BH) * S - 140 && p.y < groundY + 40;
   if (!near) nearSince = 0;
@@ -129,6 +130,13 @@ function release() {
   if (!state.press) return;
   canvas.classList.remove('dragging');
   if (state.press.moved) {
+    if (cursor.other) {   // 拖到了别的屏幕上:主进程把窗口搬过去,Clawd 从光标处落下(见 'display:')
+      state.press = null;
+      st.vx = st.vy = 0; st.air = true;
+      setAction({ type: 'fall' });
+      window.pet?.dropDisplay();
+      return;
+    }
     const EDGE = 60;
     if (state.press.lastX <= EDGE || state.press.lastX >= Wpx - EDGE) {
       state.press = null;

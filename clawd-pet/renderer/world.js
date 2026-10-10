@@ -15,4 +15,5 @@ export const STEP_T = 0.17, STEP_H = 0.16;
 
 export const cursor = { x: -9999, y: -9999, at: -10 };
 
+export function setScreen(w, h) { Wpx = w; Hpx = h; }   // 搬到另一块屏幕时由 commands.js 调用
 addEventListener('resize', () => { Wpx = innerWidth; Hpx = innerHeight; st.x = Math.min(maxX(), Math.max(minX(), st.x)); });

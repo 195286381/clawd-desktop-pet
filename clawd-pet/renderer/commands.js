@@ -2,11 +2,12 @@
 import { prefs, state } from './state.js';
 import { S, canvas, clock } from './scene.js';
 import { LEG_L, REST_X, flashFace, root } from './model.js';
-import { Hpx, Wpx, feet, st } from './world.js';
+import { Hpx, Wpx, feet, maxX, minX, setScreen, st } from './world.js';
 import { sfx } from './sfx.js';
 import { hideBubble, say, sayLater } from './bubble.js';
 import { showUsage } from './quota.js';
 import { chatter } from './chatter.js';
+import { kbClose, kbKey, kbOpenList } from './crabs.js';
 import { decidePerm, dropPerm, permQueue } from './perm.js';
 import { BREAK_REST, awayLog, showReport, welcomeBack } from './reminders.js';
 import { action, isClinging, pickWalk, setAction, stopCling } from './behavior.js';
@@ -16,6 +17,7 @@ window.pet?.onCommand(cmd => {
   wake();
   if (cmd === 'minimize') {
     if (state.press) { state.press = null; canvas.classList.remove('dragging'); }
+    kbClose();
     for (const p of permQueue.splice(0)) window.pet?.permDecision(p.id, 'pass');   // 收起了就没法点:全部交回终端
     state.permShown = null; sayLater.length = 0; hideBubble(true);
     setAction({ type: 'leave' });
@@ -63,6 +65,20 @@ window.pet?.onCommand(cmd => {
   }
   if (cmd.startsWith('perm-cancel:')) { dropPerm(Number(cmd.slice(12))); return; }
   if (cmd.startsWith('perm-key:')) { decidePerm(cmd.slice(9)); return; }
+  if (cmd === 'kb-open') { kbOpenList(); return; }
+  if (cmd.startsWith('kb:')) { kbKey(cmd.slice(3)); return; }
+  if (cmd.startsWith('display:')) {   // 搬到了另一块屏幕:从光标处(菜单里搬的就从屏幕中间上方)落下
+    const [x, y, w, h] = cmd.slice(8).split(',').map(Number);
+    if (state.press) { state.press = null; canvas.classList.remove('dragging'); }
+    if (isClinging()) window.pet?.setClinging(false);
+    setScreen(w, h);
+    root.rotation.z = 0;
+    st.x = Math.min(maxX(), Math.max(minX(), x / S)); st.y = Math.max(0, (h - y) / S);
+    st.vx = st.vy = 0; st.air = true;
+    feet.forEach((f, i) => { f.x = st.x + REST_X[i]; f.y = st.y - LEG_L; f.vx = f.vy = 0; f.swing = null; });
+    setAction({ type: 'fall' });
+    return;
+  }
   if (action.type === 'drag' || action.type === 'leave') return;
   if (isClinging() && ['jump', 'wave', 'dance', 'lean', 'walk', 'home'].includes(cmd)) stopCling();
   if (cmd === 'passthrough-on') { prefs.passthrough = true; state.interactive = false; canvas.classList.remove('ghost'); return; }

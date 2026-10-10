@@ -38,4 +38,5 @@ export const state = {
   holidayForce: null,   // 开发自测:提前看节日装扮
   propOverride: null,   // 开发自测:临时拿某个道具
   propOverrideUntil: 0,
+  dotsMouse: false,   // 光标真的在会话小螃蟹 / 会话详情上(用键盘挑会话时 dotsHover 也为真)
 };

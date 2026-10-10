@@ -93,16 +93,18 @@ window.pet?.onClaude?.(ev => {
       // 工具失败很常见(比如搜索没结果),只晕一下,不弹对话框;测试没过就垂头丧气
       { const k = cmdKind(ev.cmd); if (k === 'test') react('test-fail'); else if (k === 'build') react('build-fail'); else flashFace('dizzy', 1.6); }
       break;
+    case 'SubagentStart': (x.agents ||= new Set()).add(ev.agent || String(now)); break;
+    case 'SubagentStop': x.agents?.delete(ev.agent); break;
     case 'Stop': {
       const took = now - x.started;
-      to('done');
+      to('done'); x.agents?.clear();   // 这一轮结束,前台的子助手都收回来了(万一漏了 SubagentStop 也不会一直趴着)
       if (state.userAway) awayLog.set(sid, 'done');
       // 很快就答完的不打扰,干了一会儿(≥ 15 秒)的才报告
       if (prefs.ccNotify.done && took >= 15e3) { sfx('done'); flashFace('happy', 2.5); ccAlert(t('Claude 做完啦 ✅') + ccProject(ev), 6, true); }
       break;
     }
     case 'StopFailure':
-      to('error');
+      to('error'); x.agents?.clear();
       if (state.userAway) awayLog.set(sid, 'error');
       if (prefs.ccNotify.done) { sfx('error'); flashFace('cry', 2.5); ccAlert(t('⚠️ Claude 出错停下了') + ccProject(ev), 7); }
       break;
