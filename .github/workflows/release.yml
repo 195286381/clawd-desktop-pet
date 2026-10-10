@@ -1,0 +1,115 @@
+# 推 v* 标签时在 macOS 上打包、签名、公证,把 zip 传到同名的 Release(没有就建一个草稿)。
+# 也可以在 Actions 页手动运行:只打包并上传成构建产物,不碰 Release。
+# 需要的 Secrets 见 CONTRIBUTING.md 的 Releasing 一节。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-15   # Apple silicon
+    defaults:
+      run:
+        working-directory: clawd-pet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: clawd-pet/package-lock.json
+
+      - name: 检查标签和 package.json 版本一致
+        if: github.ref_type == 'tag'
+        run: |
+          v=$(node -p "require('./package.json').version")
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::标签 $GITHUB_REF_NAME 和 package.json 版本 $v 对不上"; exit 1; }
+
+      - name: 检查签名用的 Secrets
+        env:
+          CERT: ${{ secrets.MACOS_CERTIFICATE }}
+          IDENTITY: ${{ secrets.CLAWD_SIGN_IDENTITY }}
+          API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+        run: |
+          [ -n "$CERT" ] && [ -n "$IDENTITY" ] || { echo "::error::缺少 MACOS_CERTIFICATE / CLAWD_SIGN_IDENTITY,不发未签名的包"; exit 1; }
+          [ -n "$API_KEY" ] || [ -n "$APPLE_ID" ] || { echo "::error::缺少公证凭据(APPLE_API_KEY… 或 APPLE_ID…)"; exit 1; }
+
+      - name: 导入签名证书到临时钥匙串
+        env:
+          CERT: ${{ secrets.MACOS_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          kc="$RUNNER_TEMP/build.keychain-db"
+          kcpw=$(openssl rand -hex 16)
+          echo "$CERT" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$kcpw" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$kcpw" "$kc"
+          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kcpw" "$kc" > /dev/null
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          security find-identity -v -p codesigning "$kc"
+
+      - name: 写入公证用的 API Key
+        env:
+          API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          [ -n "$API_KEY" ] || exit 0   # 用 Apple ID 公证时跳过
+          echo "$API_KEY" > "$RUNNER_TEMP/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - run: npm ci
+
+      - name: 打包、签名、公证
+        env:
+          CLAWD_SIGN_IDENTITY: ${{ secrets.CLAWD_SIGN_IDENTITY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run package
+
+      - name: 验证签名和公证票据
+        run: |
+          app=dist/Clawd-darwin-arm64/Clawd.app
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+
+      - name: 压缩
+        id: zip
+        run: |
+          v=$(node -p "require('./package.json').version")
+          zip="dist/Clawd-$v-macos-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent dist/Clawd-darwin-arm64/Clawd.app "$zip"
+          echo "path=clawd-pet/$zip" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Clawd-macos-arm64
+          path: ${{ steps.zip.outputs.path }}
+
+      - name: 上传到 Release
+        if: github.ref_type == 'tag'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZIP: ${{ steps.zip.outputs.path }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --notes ""
+          gh release upload "$GITHUB_REF_NAME" "$ZIP" --clobber
+
+      - name: 清理钥匙串
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
