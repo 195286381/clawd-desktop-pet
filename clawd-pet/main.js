@@ -142,7 +142,7 @@ function toggleApprove(on) {
   try { editCCHooks(set => set('PermissionRequest', on ? { command: APPROVE_CMD, timeout: 75 } : null)); }
   catch (e) { dialog.showErrorBox(t('没能修改 Claude Code 配置'), `${ccSettingsFile()}\n\n${e.message}\n\n${t('文件没有被改动。')}`); }
   refreshMenus();
-  if (on && ccApproveOn()) dialog.showMessageBox({ message: t('已打开：在 Clawd 上批准权限'), detail: t('Claude 要你批准时，如果它所在的终端 / App 不在最前面，Clawd 会弹出「允许 / 拒绝 / 去终端处理」；60 秒没点就交回终端照常弹框。终端在最前面时不拦，直接在终端里批准。\n\nClaude 问你选择题时也一样，可以直接点选项，或者自己写回答。\n\n新开的 Claude Code 会话才生效。') });
+  if (on && ccApproveOn()) dialog.showMessageBox({ message: t('已打开：在 Clawd 上批准权限'), detail: t('Claude 要你批准时，如果它所在的终端 / App 不在最前面，Clawd 会弹出「允许 / 拒绝 / 去终端处理」，也可以「总是允许」，或者写一句原因再拒绝；60 秒没点就交回终端照常弹框。终端在最前面时不拦，直接在终端里批准。\n\nClaude 问你选择题时也一样，可以直接点选项，或者自己写回答。\n\n新开的 Claude Code 会话才生效。') });
 }
 function toggleCCHooks(on) {
   try { setCCHooks(on); }
@@ -363,12 +363,28 @@ function syncPermKeys() {
   if (want && !has) for (const [k, d] of Object.entries(PERM_KEYS)) globalShortcut.register(k, () => send('perm-key:' + d));
   else if (!want && has) for (const k of Object.keys(PERM_KEYS)) globalShortcut.unregister(k);
 }
-function permReply(id, behavior, answers) {
+// 「总是允许」:把 Claude Code 给的建议原样交回去,和终端里选「不再询问」一样。只认放行规则、自动接受编辑、加工作目录这几种,
+// 别的(比如切到跳过所有确认)不碰;按钮上写明放行了什么、记在哪
+const ALWAYS_SCOPE = { session: '本次会话', localSettings: '这个项目', projectSettings: '这个项目', userSettings: '所有项目' };
+function alwaysAllow(sugs) {
+  const list = (Array.isArray(sugs) ? sugs : []).filter(s => s && ALWAYS_SCOPE[s.destination] && (
+    (s.type === 'addRules' && s.behavior === 'allow' && Array.isArray(s.rules) && s.rules.length && s.rules.every(r => typeof r?.toolName === 'string'))
+    || (s.type === 'setMode' && s.mode === 'acceptEdits')
+    || (s.type === 'addDirectories' && Array.isArray(s.directories) && s.directories.length)));
+  if (!list.length) return null;
+  const what = list.map(s => (s.type === 'addRules' ? s.rules.map(r => (r.ruleContent ? `${toolName(r.toolName)}(${r.ruleContent})` : toolName(r.toolName))).join(', ')
+    : s.type === 'setMode' ? t('自动接受编辑') : t('访问 {0}', s.directories.map(d => path.basename(String(d))).join(', '))));
+  return { list, label: `${clip(what.join(' · '), 44)} · ${t(ALWAYS_SCOPE[list[0].destination])}` };
+}
+function permReply(id, behavior, answers, message) {
   const p = perms.get(id);
   if (!p) return;
   perms.delete(id); clearTimeout(p.timer); syncPermKeys();
-  // 选择题(AskUserQuestion):答案放进 updatedInput.answers 交回去,Claude Code 就不再弹题;自己写的回答原样当答案
+  // 选择题(AskUserQuestion):答案放进 updatedInput.answers 交回去,Claude Code 就不再弹题;自己写的回答原样当答案。
+  // 总是允许:带上放行规则;拒绝时写了原因,就一起告诉 Claude
   const decision = p.input && answers ? { behavior: 'allow', updatedInput: { ...p.input, answers } }
+    : behavior === 'always' && p.always ? { behavior: 'allow', updatedPermissions: p.always }
+    : behavior === 'deny' && message ? { behavior: 'deny', message }
     : behavior === 'allow' || behavior === 'deny' ? { behavior } : null;
   p.res.end(decision ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }) : '');
 }
@@ -383,18 +399,21 @@ function askPermission(res, d, where) {
     const name = String(d.tool_name || '');
     const ask = name === 'AskUserQuestion' && Array.isArray(d.tool_input?.questions) ? d.tool_input : null;   // Claude 出的选择题
     if (ask) perms.get(id).input = ask;
+    const always = !ask && alwaysAllow(d.permission_suggestions);
+    if (always) perms.get(id).always = always.list;
     const preview = name === 'Bash' ? String(d.tool_input?.command || '').trim() : toolDetail(name, d.tool_input);
     win.webContents.send('perm', {
       id, ...where, session: String(d.session_id || ''), project: d.cwd ? path.basename(String(d.cwd)) : '', title: titles.get(String(d.session_id || ''))?.name || '',
-      tool: toolName(name), preview: preview.length > 300 ? preview.slice(0, 299) + '…' : preview,
+      tool: toolName(name), preview: preview.length > 300 ? preview.slice(0, 299) + '…' : preview, always: always ? always.label : '',
       questions: ask && ask.questions.map(q => ({ question: String(q.question || ''), multi: !!q.multiSelect,
         options: (q.options || []).map(o => ({ label: String(o.label || ''), description: String(o.description || '') })) })),
     });
   });
 }
-ipcMain.on('perm-decision', (_e, id, behavior, answers) => permReply(Number(id), String(behavior),
-  answers && typeof answers === 'object' ? Object.fromEntries(Object.entries(answers).map(([k, v]) => [String(k), String(v)])) : null));
-// 在选择题气泡里自己写回答:这时才让窗口能拿到键盘,写完 / 点走就还回去,平时打字照旧进你当前的 App
+ipcMain.on('perm-decision', (_e, id, behavior, answers, message) => permReply(Number(id), String(behavior),
+  answers && typeof answers === 'object' ? Object.fromEntries(Object.entries(answers).map(([k, v]) => [String(k), String(v)])) : null,
+  typeof message === 'string' ? message.trim().slice(0, 2000) : ''));
+// 在选择题气泡里自己写回答、在批准气泡里写拒绝的原因:这时才让窗口能拿到键盘,写完 / 点走就还回去,平时打字照旧进你当前的 App
 ipcMain.on('perm-typing', (_e, on) => {
   if (!win || win.isDestroyed()) return;
   win.setFocusable(!!on);
@@ -742,7 +761,7 @@ app.whenReady().then(() => {
   let away = false;
   setInterval(() => {
     const idle = powerMonitor.getSystemIdleTime();
-    if (!away && idle >= AWAY_AFTER) { away = true; send('away'); }
+    if (!away && idle >= AWAY_AFTER) { away = true; send('away:' + (Date.now() - idle * 1000)); }   // 带上你最后一次动键盘鼠标的时间
     else if (away && idle < 3) { away = false; send('back'); }
   }, 2000);
 });
