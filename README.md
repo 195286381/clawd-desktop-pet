@@ -122,6 +122,7 @@ In **newly started** Claude Code sessions:
 - **Context almost full** (90%) — once per session: "🦀 Context is almost full (92%), auto-compact is coming"
 - **Compacting context** — an open cardboard box appears over Clawd's head and sheets of paper fly in; when compaction is done the box gets taped shut, Clawd hops, and the chubby crab slims back down
 - **While you were away** — after 5 idle minutes Clawd lies down to sleep; when you're back it sums up what you missed, e.g. "While you were away: 🙋 api-server needs your approval (waiting 12 min) / ✅ clawd finished"
+- **Several at once** — alerts that arrive close together go into one bubble, one under another; alerts that come in while an approval bubble is open wait until you've answered it
 
 ### Reactions
 
@@ -147,7 +148,7 @@ Each reaction plays at most once every 15 seconds, and not while Clawd is clingi
 
 Off by default — turn it on under **Claude Code → Approve permissions on Clawd** (在 Clawd 上批准权限); it applies to sessions you open afterwards.
 
-When Claude needs approval to use a tool and that session's window isn't in front, Clawd pops up a bubble showing the project and the tool (the full command for Bash), with **Allow / Deny / Go to terminal**. Press <kbd>⌥⌘Y</kbd> to allow or <kbd>⌥⌘N</kbd> to deny (these keys are only taken while a request is waiting). Several requests come one at a time. When Claude asks you a multiple-choice question, the bubble shows the question and its options instead: click an option, pick several and press **OK** for multi-select questions, or type your own answer in the box at the bottom and press Return. If you're already looking at that session, Clawd stays out of it; if you don't answer within 60 seconds, or Clawd is hidden or in full click-through, the request goes back to Claude Code's usual prompt.
+When Claude needs approval to use a tool and that session's window isn't in front, Clawd pops up a bubble showing the project and the tool (the full command for Bash), with **Allow / Deny / Go to terminal**. Press <kbd>⌥⌘Y</kbd> to allow or <kbd>⌥⌘N</kbd> to deny (these keys are only taken while a request is waiting). When Claude Code offers a rule, there's also **Always allow**, with the rule and where it's saved underneath (e.g. `Bash(npm test:*) · this project`) — the same as choosing "don't ask again" in the terminal. To deny and tell Claude why, type a reason in the box at the bottom and press Return. Several requests come one at a time. When Claude asks you a multiple-choice question, the bubble shows the question and its options instead: click an option, pick several and press **OK** for multi-select questions, or type your own answer in the box at the bottom and press Return. If you're already looking at that session, Clawd stays out of it; if you don't answer within 60 seconds, or Clawd is hidden or in full click-through, the request goes back to Claude Code's usual prompt.
 
 ### How the connection works
 
@@ -189,7 +190,7 @@ When the quota resets, it dances to celebrate. Without quota data (API key), the
 
 **Daily recap.** After 6 PM, the first time Clawd is free it hands you a little report for the day: sessions, how long Claude worked, tests passed, commits and pushes, estimated cost and the busiest project. On Fridays it covers the week (Monday to today). The usage panel shows the same counts under **Today** and **Last 7 days**. Counts come from the hooks and are kept for 14 days in `stats.json` next to the settings. Turn it off under **Claude Code → Daily recap after work (weekly on Fridays)**.
 
-**Break reminders.** After 60 minutes of continuous Claude Code use (configurable), Clawd stretches and nudges you to get up; a 10-minute break resets the timer.
+**Break reminders.** After 60 minutes of continuous Claude Code use (configurable), Clawd stretches and nudges you to get up. The timer restarts after a 10-minute pause in Claude Code, or after you've been away from your keyboard and mouse for 10 minutes (even if Claude kept working); there are no reminders while you're away.
 
 ---
 

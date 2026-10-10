@@ -350,9 +350,26 @@ function setBubbleHtml(html, type) {
   if (type) typeIn(bubble);
   bubble.insertAdjacentHTML('afterbegin', PX_FRAME);
 }
+// 对你说的话(say)几句挨着来:合成一个框,新的一句接在后面逐字打出来,最多留最近 SAY_KEEP 句。
+// 批准气泡开着时先攒着,等你表态完再一起说;被批准气泡挤掉、还没说完的也放回去
+const SAY_KEEP = 4, SAY_SEP = '<div class="sep"></div>';
+let sayParts = [];   // 当前框里的几句
+const sayLater = [];   // 攒着的:{ html, secs }
 function say(html, secs, kind = 'say') {
-  if (bubbleKind === 'perm' && kind !== 'perm') return;   // 正在等你批准:别的话先不说,免得把按钮盖掉
+  if (bubbleKind === 'perm' && kind !== 'perm') { if (kind === 'say') sayLater.push({ html, secs }); return; }   // 自言自语就不攒了
   wake();
+  const now = nowSec(), talking = bubbleKind === 'say' && now < bubbleUntil;
+  if (kind === 'perm' && talking && bubbleUntil - now > 1) sayLater.push(...sayParts.map(h => ({ html: h, secs: Math.max(3, bubbleUntil - now) })));
+  bubbleLeft = null;   // 给会话详情让开时,按新的时长重新算还剩几秒
+  if (kind === 'say' && talking) {   // 上一句还没说完:接在同一个框里
+    sayParts = [...sayParts, html].slice(-SAY_KEEP);
+    bubble.innerHTML = sayParts.slice(0, -1).join(SAY_SEP) + SAY_SEP + `<span class="new">${html}</span>`;
+    typeIn(bubble.querySelector('.new'));
+    bubble.insertAdjacentHTML('afterbegin', PX_FRAME);
+    bubbleUntil = Math.max(bubbleUntil, now + secs);
+    return;
+  }
+  sayParts = kind === 'say' ? [html] : [];
   setBubbleHtml(html, kind !== 'usage');   // 用量面板是数据,不逐字打
   bubble.className = 'show ' + kind;
   void bubble.offsetWidth;          // 重新触发弹出动画
@@ -643,6 +660,7 @@ function ctxCheck(x, ev) {
 function ccAlert(html, secs, jump) {
   if (paused) return;
   say(html, secs);
+  if (bubbleKind === 'perm') return;   // 批准气泡开着:这句先攒着(见 say),Clawd 已经在挥手了
   if (isClinging() || action.type === 'drag') { action.waveT = 0; return; }
   setAction(jump ? { type: 'jump', dir: 0, big: true } : { type: 'wave', dur: 2.4 });
 }
@@ -1049,7 +1067,10 @@ function showPermBubble(p) {
   const name = esc(p.title || p.project || t('会话'));
   say((p.questions ? questionHtml(p, name)
     : t('🙋 <b>{0}</b> 要用 <b>{1}</b>', name, esc(p.tool)) + (p.preview ? `<code>${esc(p.preview)}</code>` : '')
-      + `<div class="btns"><button data-d="allow">${t('允许')}<small>⌥⌘Y</small></button><button data-d="deny">${t('拒绝')}<small>⌥⌘N</small></button><button data-d="pass">${t('去终端处理')}</button></div>`)
+      + `<div class="btns"><button data-d="allow">${t('允许')}<small>⌥⌘Y</small></button><button data-d="deny">${t('拒绝')}<small>⌥⌘N</small></button><button data-d="pass">${t('去终端处理')}</button></div>`
+      // 总是允许:下面一行写着放行的规则和记在哪;最下面可以写一句原因再拒绝,Claude 会看到
+      + (p.always ? `<button class="always" data-d="always">${t('总是允许')}<small>${esc(p.always)}</small></button>` : '')
+      + `<input class="other why" placeholder="${esc(t('写一句原因再拒绝…'))}" spellcheck="false">`)
     + (permQueue.length > 1 ? `<i class="more">${t('后面还有 {0} 个', permQueue.length - 1)}</i>` : ''), 3600, 'perm');
   bubble.classList.add('say');   // 外观和对你说话的气泡一样
 }
@@ -1088,7 +1109,9 @@ bubble.addEventListener('keydown', e => {
   if (!e.target.matches('.other')) return;
   if (e.key === 'Escape') e.target.blur();
   if (e.key !== 'Enter' || e.isComposing) return;   // 输入法选字时的回车不算
-  const p = permShown, v = p.questions[p.qi].multi ? pickedAnswer() : e.target.value.trim();
+  const p = permShown;
+  if (!p.questions) { const why = e.target.value.trim(); if (why) decidePerm('deny', why); return; }   // 批准气泡:写了原因就拒绝
+  const v = p.questions[p.qi].multi ? pickedAnswer() : e.target.value.trim();
   if (v) answerQuestion(v);
 });
 function dropPerm(id) {
@@ -1097,6 +1120,10 @@ function dropPerm(id) {
   permQueue.splice(i, 1);
   if (permShown?.id === id) { permShown = null; bubbleHover = false; stopTyping(); hideBubble(true); }
   showPerm();
+  if (!permShown && sayLater.length && !paused) {   // 都处理完了:把攒着的话合成一个框说出来
+    for (const s of sayLater.splice(0)) say(s.html, s.secs);
+    if (!isClinging() && !['drag', 'leave'].includes(action.type)) setAction({ type: 'wave', dur: 1.6 });
+  }
 }
 window.pet?.onPerm?.(p => { permQueue.push(p); showPerm(); if (permShown && permShown !== p) showPermCount(); });
 function showPermCount() {   // 排队的数量变了:更新「后面还有 N 个」
@@ -1119,11 +1146,11 @@ bubble.addEventListener('click', e => {
   if (b?.dataset.d === 'ok') { const v = pickedAnswer(); return v && answerQuestion(v); }
   if (b) decidePerm(b.dataset.d);
 });
-function decidePerm(d) {   // 点按钮或按快捷键
+function decidePerm(d, why) {   // 点按钮或按快捷键;why:拒绝的原因
   if (!permShown || (permShown.questions && d !== 'pass')) return;   // 选择题没有「允许 / 拒绝」,⌥⌘Y / ⌥⌘N 不管用
   const p = permShown;
-  window.pet?.permDecision(p.id, d);
-  sfx(d === 'allow' ? 'pop' : 'poke');
+  window.pet?.permDecision(p.id, d, null, why);
+  sfx(d === 'allow' || d === 'always' ? 'pop' : 'poke');
   if (d === 'pass' && p.app) window.pet?.focusSession({ app: p.app, tty: p.tty, host: p.host });   // 去终端处理:顺便跳过去
   dropPerm(p.id);
 }
@@ -1197,7 +1224,9 @@ setInterval(() => {
 setInterval(() => { if (bubbleKind === 'usage' && ccSessions.size) setBubbleHtml(usageHtml(usage), false); }, 1000);
 
 // ---------------- 额度用完预测 & 休息提醒(每次用量更新时检查) ----------------
-let etaWarnedFor = null, breakState = { start: null, n: 0 };
+// 休息提醒按 Claude 连续在用的时长算;但 Claude 自己接着跑不算你在写:你离开电脑够久(BREAK_REST)回来就重新计时,不在时也不提醒
+const BREAK_REST = 10 * 60e3;
+let etaWarnedFor = null, breakState = { start: null, n: 0 }, awayFrom = 0, restedAt = 0;   // 你最后一次动键盘鼠标 / 上次休息完回来的时间
 function fmtMin(m) {
   if (EN_UI) return m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ' ' + (m % 60) + ' min' : ''}` : `${m} min`;
   return m >= 60 ? `${Math.floor(m / 60)} 小时${m % 60 ? ' ' + (m % 60) + ' 分' : ''}` : `${m} 分钟`;
@@ -1214,9 +1243,10 @@ function checkEtaAndBreak(u) {
     sfx('chime');
     say(t('⏳ 照现在的速度<br>5 小时额度大约 <b>{0}</b>后用完', fmtMin(e.min)), 7);
   }
-  if (breakMin > 0 && u.streakStart && !paused) {
-    if (breakState.start !== u.streakStart) breakState = { start: u.streakStart, n: 0 };
-    const mins = Math.floor((Date.now() - u.streakStart) / 60e3), n = Math.floor(mins / breakMin);
+  if (breakMin > 0 && u.streakStart && !paused && !userAway) {
+    const start = Math.max(u.streakStart, restedAt);
+    if (breakState.start !== start) breakState = { start, n: 0 };
+    const mins = Math.floor((Date.now() - start) / 60e3), n = Math.floor(mins / breakMin);
     if (n > breakState.n) {
       breakState.n = n;
       sfx('chime');
@@ -1293,7 +1323,7 @@ window.pet?.onCommand(cmd => {
   if (cmd === 'minimize') {
     if (press) { press = null; canvas.classList.remove('dragging'); }
     for (const p of permQueue.splice(0)) window.pet?.permDecision(p.id, 'pass');   // 收起了就没法点:全部交回终端
-    permShown = null; hideBubble(true);
+    permShown = null; sayLater.length = 0; hideBubble(true);
     setAction({ type: 'leave' });
     hideBubble();
     return;
@@ -1326,12 +1356,17 @@ window.pet?.onCommand(cmd => {
   if (cmd.startsWith('power-save:')) { powerSave = cmd === 'power-save:on'; return; }
   if (cmd.startsWith('sound:')) { soundOn = cmd === 'sound:on'; return; }
   if (cmd.startsWith('fade:')) { canvas.dataset.fade = cmd.slice(5); return; }
-  if (cmd === 'away') {
-    userAway = true; awayLog.clear();
+  if (cmd.startsWith('away')) {
+    userAway = true; awayLog.clear(); awayFrom = Number(cmd.slice(5)) || Date.now();
     if (!paused && !isClinging() && !['drag', 'leave', 'fall'].includes(action.type)) setAction({ type: 'sleep' });
     return;
   }
-  if (cmd === 'back') { userAway = false; welcomeBack(); return; }
+  if (cmd === 'back') {
+    userAway = false;
+    if (Date.now() - awayFrom >= BREAK_REST) restedAt = Date.now();   // 离开够久,算休息过了
+    welcomeBack();
+    return;
+  }
   if (cmd.startsWith('perm-cancel:')) { dropPerm(Number(cmd.slice(12))); return; }
   if (cmd.startsWith('perm-key:')) { decidePerm(cmd.slice(9)); return; }
   if (action.type === 'drag' || action.type === 'leave') return;
