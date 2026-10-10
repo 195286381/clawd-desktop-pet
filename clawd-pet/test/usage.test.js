@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { UsageTracker, parseUsage, parseReset, priceFor, listJsonl, projectDirs, _eta } = require('../usage');
+const { UsageTracker, parseUsage, parseReset, priceFor, listJsonl, projectDirs, setLiveLimits, limitsLiveAt, _eta } = require('../usage');
 
 const MIN = 60e3, HOUR = 3600e3, DAY = 24 * HOUR;
 
@@ -208,4 +208,17 @@ test('scan:从 CLAUDE_CONFIG_DIR 读会话记录,增量读、半行等写完再�
   assert.deepEqual(u.entries.map(e => e.t), [now - MIN, now]);
   u.scan();                                                             // 文件没变:不重复计
   assert.equal(u.entries.length, 2);
+});
+
+test('setLiveLimits:状态栏送来的额度直接换上,数字变了才说变了,缺的窗口沿用上次', () => {
+  const now = Date.now(), reset = now + 2 * HOUR;
+  const five = used => ({ key: 'session', used, remaining: 100 - used, resetsAt: reset, resetText: '' });
+  const week = { key: 'week (all models)', used: 40, remaining: 60, resetsAt: now + 3 * DAY, resetText: '' };
+  assert.equal(setLiveLimits({ fiveHour: five(20), sevenDay: week }, now), true);
+  assert.equal(limitsLiveAt(), now);
+  assert.equal(setLiveLimits({ fiveHour: five(20.3), sevenDay: week }, now + 1000), false);   // 四舍五入后一样:不用刷新页面
+  assert.equal(setLiveLimits({ fiveHour: five(22), sevenDay: null }, now + 2000), true);
+  const u = new UsageTracker().summary();
+  assert.equal(u.limits.fiveHour.used, 22);
+  assert.equal(u.limits.sevenDay.used, 40);   // 这次没送本周额度:沿用上次的
 });

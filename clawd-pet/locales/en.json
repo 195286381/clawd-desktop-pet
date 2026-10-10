@@ -211,5 +211,22 @@
  "⌃⌥⌘C 打开会话列表": "⌃⌥⌘C opens session list",
  "{0} 个子助手": "{0} subagents",
  "↑↓ 选择 · ⏎ 跳过去 · esc 关闭": "↑↓ select · ⏎ jump · esc close",
- "现在没有在跑的会话": "No sessions running right now"
+ "现在没有在跑的会话": "No sessions running right now",
+ "待命": "ready",
+ "用量到上限了": "hit the usage limit",
+ "服务器太忙": "servers are busy",
+ "服务器出错": "server error",
+ "登录失效了": "login expired",
+ "云服务凭证失效": "cloud credentials expired",
+ "账户付费有问题": "billing problem",
+ "账户被暂停了": "account on hold",
+ "回复太长被截断": "reply too long, cut off",
+ "找不到这个模型": "model not found",
+ "过一会儿再试": "Try again in a bit",
+ "在终端里重新登录（/login）": "Log in again in the terminal (/login)",
+ "{0} Claude 停下了：{1}": "{0} Claude stopped: {1}",
+ "⚠️ <b>{0}</b> 停下了：{1}": "⚠️ <b>{0}</b> stopped: {1}",
+ "实时额度(经由状态栏)": "Live quota (via status line)",
+ "已打开：实时额度": "Live quota is on",
+ "Claude Code 每次刷新底部状态栏时，会顺带把额度和上下文用量告诉 Clawd：血条跟着每次回复更新，不用再每 5 分钟查一次。你原来的状态栏照常显示。\n\n如果你原来没有设置状态栏，Claude Code 底部的一些按键提示（比如 esc to interrupt）会不再显示。只有 Pro / Max 订阅才有额度数据。": "Each time Claude Code refreshes its status line, it also tells Clawd your quota and context usage: the quota bar updates with every reply instead of every 5 minutes. Your own status line keeps showing as before.\n\nIf you had no status line, Claude Code stops showing some of its footer hints (like \"esc to interrupt\"). Quota data is only available on Pro / Max."
 }

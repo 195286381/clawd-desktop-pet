@@ -7,7 +7,7 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 const { execFile } = require('child_process');
-const { UsageTracker, fetchLimits, projectDirs, listJsonl } = require('./usage');
+const { UsageTracker, fetchLimits, setLiveLimits, limitsLiveAt, QUOTA_DIR, projectDirs, listJsonl } = require('./usage');
 const cc = require('./cc');
 const { HOOK_EVENTS, HOOK_MARK, HOST_ID, clip, toolName, toolDetail, runningStep } = cc;
 
@@ -116,21 +116,33 @@ function ccHooksStale() {
   catch { return false; }
 }
 const ccApproveOn = () => { try { return cc.hasClawdHook(readCC().hooks, 'PermissionRequest'); } catch { return false; } };
-// 只增删 Clawd 自己的那几条,别的 hooks 原样保留;改之前先备份
-function editCCHooks(mutate) {
+// 改 Claude Code 配置:只动 Clawd 自己的那几条,别的原样保留;改之前先备份
+function editCC(fn) {
   const file = ccSettingsFile();
   const cfg = readCC();
   // 只在第一次备份:保留的是装 Clawd 之前的原样
   if (fs.existsSync(file) && !fs.existsSync(file + '.clawd-backup')) fs.copyFileSync(file, file + '.clawd-backup');
-  cc.editHooks(cfg, mutate);
+  fn(cfg);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
 }
+const editCCHooks = mutate => editCC(cfg => cc.editHooks(cfg, mutate));
 function setCCHooks(on) {
-  editCCHooks(set => {
-    for (const ev of HOOK_EVENTS) set(ev, on ? { command: HOOK_CMD, async: true, timeout: 5 } : null);
-    if (!on) set('PermissionRequest', null);   // 断开连接时,批准权限也一起关掉
+  editCC(cfg => {
+    cc.editHooks(cfg, set => {
+      for (const ev of HOOK_EVENTS) set(ev, on ? { command: HOOK_CMD, async: true, timeout: 5 } : null);
+      if (!on) set('PermissionRequest', null);   // 断开连接时,批准权限也一起关掉
+    });
+    if (!on) cc.setStatusLine(cfg, false);   // 实时额度也一起关掉
   });
+}
+// 实时额度:把 Claude Code 的状态栏命令包一层,每次刷新顺带把额度、上下文发给 Clawd(见 cc.js)
+const ccLiveOn = () => { try { return cc.isClawdStatus(readCC().statusLine); } catch { return false; } };
+function toggleLive(on) {
+  try { editCC(cfg => cc.setStatusLine(cfg, on, HOOK_PORT)); }
+  catch (e) { dialog.showErrorBox(t('没能修改 Claude Code 配置'), `${ccSettingsFile()}\n\n${e.message}\n\n${t('文件没有被改动。')}`); }
+  refreshMenus();
+  if (on && ccLiveOn()) dialog.showMessageBox({ message: t('已打开：实时额度'), detail: t('Claude Code 每次刷新底部状态栏时，会顺带把额度和上下文用量告诉 Clawd：血条跟着每次回复更新，不用再每 5 分钟查一次。你原来的状态栏照常显示。\n\n如果你原来没有设置状态栏，Claude Code 底部的一些按键提示（比如 esc to interrupt）会不再显示。只有 Pro / Max 订阅才有额度数据。') });
 }
 function toggleApprove(on) {
   try { editCCHooks(set => set('PermissionRequest', on ? { command: APPROVE_CMD, timeout: 75 } : null)); }
@@ -146,11 +158,11 @@ function toggleCCHooks(on) {
   syncPrefs(); refreshMenus();
   if (on && ccHooked()) dialog.showMessageBox({ message: t('已连接 Claude Code'), detail: t('新开的 Claude Code 会话会把「在干什么 / 回复完成 / 需要确认 / 等你输入 / 出错」通知给 Clawd。已经开着的会话需要重新打开才生效。\n\n原配置已备份为 settings.json.clawd-backup。') });
 }
-// 上下文窗口优先看 CLAUDE_CODE_AUTO_COMPACT_WINDOW(环境变量或 Claude Code 配置里的 env)
-function contextFill(used) {
+// 上下文窗口优先看 CLAUDE_CODE_AUTO_COMPACT_WINDOW(环境变量或 Claude Code 配置里的 env);状态栏送来的窗口大小其次
+function contextFill(used, size) {
   let w = Number(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
   if (!(w > 0)) try { w = Number(readCC().env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW); } catch { w = 0; }
-  return cc.contextFill(used, w);
+  return cc.contextFill(used, w > 0 ? w : size);
 }
 // 会话标题(Claude App 侧边栏 / /rename 起的名字,没有就用自动生成的):列表里优先显示它,比项目目录名好认。
 // 顺带读出上下文用了多少(小螃蟹快满时变胖)。Claude Code 会把标题反复追加到会话记录里,所以只读文件末尾一段
@@ -175,20 +187,33 @@ function sessionInfo(sid, file, fresh) {
     } finally { fh.close(); }
   }).catch(() => c || { name: '', ctx: null });
 }
+// 状态栏送来的数据:额度换上最新的(变了才刷新页面),上下文用量交给那个会话的小螃蟹
+function onStatus(d) {
+  const s = cc.statusInfo(d);
+  if (s.limits && setLiveLimits(s.limits)) pushUsage();
+  if (!s.session || !s.ctx) return;
+  const ctx = contextFill(s.ctx.used, s.ctx.size), c = titles.get(s.session);
+  if (c) c.ctx = ctx;
+  if (win && !win.isDestroyed()) win.webContents.send('cc', { event: 'Status', session: s.session, ctx, at: Date.now() });
+}
+const isQuotaCheck = d => path.basename(String(d.cwd || '')) === path.basename(QUOTA_DIR);   // Clawd 自己跑 claude 查额度时的事件
 http.createServer((req, res) => {
-  if (req.method !== 'POST' || (req.url !== '/hook' && req.url !== '/permission')) { res.writeHead(404); return res.end(); }
+  if (req.method !== 'POST' || !['/hook', '/permission', '/status'].includes(req.url)) { res.writeHead(404); return res.end(); }
   let body = '';
   req.on('data', c => { body += c; if (body.length > 2e6) req.destroy(); });   // PostToolUse 带着工具输出,可能比较大
   req.on('end', () => {
     const perm = req.url === '/permission';
     if (!perm) res.end('ok');
     let d; try { d = JSON.parse(body); } catch { return res.end(''); }
+    if (!d || typeof d !== 'object') return res.end('');
+    if (req.url === '/status') return onStatus(d);
+    if (!perm && isQuotaCheck(d)) return;
     const where = cc.hookWhere(req.headers);
     if (perm) return askPermission(res, d, where);
     const ev = cc.hookEvent(d);
     countHook(ev);
     ccQueue = ccQueue.then(() => sessionInfo(ev.session, d.transcript_path, ev.event === 'Stop' || ev.event === 'PostCompact'))   // 排队发,读标题再慢也不打乱事件顺序
-      .then(({ name, ctx }) => { if (win && !win.isDestroyed()) win.webContents.send('cc', { ...where, ...ev, title: name, ctx }); });
+      .then(({ name, ctx }) => { if (win && !win.isDestroyed()) win.webContents.send('cc', { ...where, ...ev, title: name || ev.stitle, ctx }); });
   });
 }).on('error', e => console.error('Clawd hooks 接口启动失败', e.message)).listen(HOOK_PORT, '127.0.0.1');
 
@@ -420,9 +445,11 @@ function pushUsage() {
     win.webContents.send('usage', sum);
   } catch (e) { console.error('用量统计失败', e); }
 }
-// 订阅额度:调用 `claude -p "/usage"` 查询(约 5 秒,不消耗额度)。每 5 分钟一次;点开气泡时若超过 1 分钟也刷新
+// 订阅额度:调用 `claude -p "/usage"` 查询(约 5 秒,不消耗额度)。每 5 分钟一次;点开气泡时若超过 1 分钟也刷新。
+// 打开了实时额度、状态栏 5 分钟内送来过额度时不用查
 let limitsAt = 0;
 function refreshLimits(force = false) {
+  if (Date.now() - limitsLiveAt() < 5 * 60e3) return;
   if (!force && Date.now() - limitsAt < 60000) return;
   limitsAt = Date.now();
   fetchLimits().then(pushUsage);
@@ -632,6 +659,7 @@ function menuTemplate({ forDock = false } = {}) {
       { type: 'separator' },
       { label: t('回复完成时提醒'), type: 'checkbox', checked: ccNotifyDone, enabled: ccHooked(), click: (item) => setPref('ccNotifyDone', item.checked) },
       { label: t('需要确认 / 等你输入时提醒'), type: 'checkbox', checked: ccNotifyAsk, enabled: ccHooked(), click: (item) => setPref('ccNotifyAsk', item.checked) },
+      { label: t('实时额度(经由状态栏)'), type: 'checkbox', checked: ccLiveOn(), enabled: ccHooked(), click: (item) => toggleLive(item.checked) },
       { label: t('在 Clawd 上批准权限'), type: 'checkbox', checked: ccApproveOn(), enabled: ccHooked(), click: (item) => toggleApprove(item.checked) },
       { label: t('头顶显示会话小螃蟹'), type: 'checkbox', checked: ccCrabs, enabled: ccHooked(), click: (item) => setPref('ccCrabs', item.checked) },
       { label: t('下班时递日报(周五是周报)'), type: 'checkbox', checked: ccReport, enabled: ccHooked(), click: (item) => setPref('ccReport', item.checked) },

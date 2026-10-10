@@ -94,7 +94,7 @@ function parseUsage(text, now) {
   };
 }
 
-let limitsCache = null, limitsError = null, fetching = null;
+let limitsCache = null, limitsError = null, fetching = null, liveAt = 0;   // liveAt:最近一次从状态栏拿到额度的时间
 
 // 用完时间预测:记录每次查到的 5 小时额度,按最近 10~90 分钟内的增长速度推算还能撑多久
 const samples = [];   // { t, used, resetsAt }
@@ -113,13 +113,16 @@ function etaMinutes(w, now) {
   const perMin = (last.used - first.used) / ((last.t - first.t) / 60e3);
   return Math.max(0, Math.round((100 - w.used) / perMin));
 }
+// 查额度时在这个目录里跑 claude,hooks 发来的事件看到这个目录就知道是 Clawd 自己,不当成会话
+const QUOTA_DIR = path.join(os.tmpdir(), 'clawd-usage');
 function fetchLimits() {
   if (fetching) return fetching;
+  try { fs.mkdirSync(QUOTA_DIR, { recursive: true }); } catch {}
   const bin = findClaude();
   if (!bin) { limitsError = 'no-cli'; return Promise.resolve(null); }
   fetching = new Promise(resolve => {
     execFile(bin, ['-p', '/usage', '--no-session-persistence'],
-      { cwd: os.tmpdir(), timeout: 45000, maxBuffer: 1 << 20, env: { ...process.env, NO_COLOR: '1' } },
+      { cwd: fs.existsSync(QUOTA_DIR) ? QUOTA_DIR : os.tmpdir(), timeout: 45000, maxBuffer: 1 << 20, env: { ...process.env, NO_COLOR: '1' } },
       (err, stdout) => {
         fetching = null;
         const parsed = !err && stdout ? parseUsage(stdout, Date.now()) : null;
@@ -130,6 +133,19 @@ function fetchLimits() {
   });
   return fetching;
 }
+// 状态栏实时送来的额度(cc.statusInfo 的 limits):直接换上,不用再跑 claude。按窗口合并,状态栏没有的(比如单个模型的周额度)沿用上次查到的。
+// 返回显示出来的数字有没有变(变了才需要刷新页面)
+function setLiveLimits(l, now = Date.now()) {
+  const old = limitsCache;
+  const pick = k => l[k] || (old && old[k]) || null;
+  limitsCache = { fiveHour: pick('fiveHour'), sevenDay: pick('sevenDay'), others: (old && old.others) || [], savedAt: now };
+  limitsError = null; liveAt = now;
+  const last = samples[samples.length - 1];
+  if (l.fiveHour && (!last || now - last.t >= 60e3 || Math.abs(last.resetsAt - l.fiveHour.resetsAt) > 5 * 60e3)) recordSample(l.fiveHour, now);   // 状态栏刷得很勤,一分钟记一次就够预测了
+  const same = (a, b) => (!a && !b) || (a && b && Math.round(a.used) === Math.round(b.used) && Math.abs(a.resetsAt - b.resetsAt) < 60e3);
+  return !old || !same(old.fiveHour, limitsCache.fiveHour) || !same(old.sevenDay, limitsCache.sevenDay);
+}
+const limitsLiveAt = () => liveAt;
 function currentLimits(now) {
   if (!limitsCache) return null;
   // 已经过了重置时间的窗口作废(等下次查询刷新)
@@ -273,7 +289,7 @@ class UsageTracker {
   }
 }
 
-module.exports = { UsageTracker, fetchLimits, parseUsage, parseReset, priceFor, projectDirs, listJsonl, _eta: { recordSample, etaMinutes } };   // parseReset / priceFor / _eta 给单元测试用
+module.exports = { UsageTracker, fetchLimits, setLiveLimits, limitsLiveAt, QUOTA_DIR, parseUsage, parseReset, priceFor, projectDirs, listJsonl, _eta: { recordSample, etaMinutes } };   // parseReset / priceFor / _eta 给单元测试用
 
 // 命令行自测:node usage.js
 if (require.main === module) {

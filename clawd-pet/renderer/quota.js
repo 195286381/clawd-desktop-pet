@@ -80,6 +80,7 @@ export function showUsage() {
 }
 
 let usageInit = false, lastNag = 0, moodByQuota = false;   // moodByQuota:心情是按额度算的(否则是按花费估算的)
+export const quotaReset = () => quota?.resetsAt || 0;   // 最紧张的那个额度窗口什么时候恢复(没有额度数据时是 0)
 function quotaLine() {
   if (!quota) return '';
   return t('{0}只剩 <b>{1}%</b>', quota.label, Math.round(quota.rem));
