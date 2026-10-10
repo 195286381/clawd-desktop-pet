@@ -36,7 +36,7 @@ jobs:
           CNF
           /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 2 -config cs.cnf
           /usr/bin/openssl pkcs12 -export -inkey key.pem -in cert.pem -out cert.p12 -passout pass:testpw
-          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain cert.pem
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain cert.pem
           echo "MACOS_CERTIFICATE=$(base64 -i cert.p12 | tr -d '\n')" >> "$GITHUB_ENV"
 
       # 和 release.yml 里的步骤一样
@@ -56,6 +56,7 @@ jobs:
           security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/cert.p12"
           security find-identity -v -p codesigning "$kc"
+          security find-identity -v
 
       - run: npm ci
 
