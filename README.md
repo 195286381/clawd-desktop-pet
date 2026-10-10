@@ -186,7 +186,7 @@ Click Clawd (or **View usage** 查看用量) for a pixel usage panel (sample dat
 | < 10% | Running on empty | Dimmer color, trembles, sweats; reminds you every 15 min |
 | Used up | Out of quota | Cries, then puts on a nightcap and sleeps |
 
-When the quota resets, it dances to celebrate. Without quota data (API key), the first three moods use the 5-hour cost estimate ($8 / $25). Thresholds are the `LEVEL_*` constants in [`clawd-pet/pet.js`](clawd-pet/pet.js).
+When the quota resets, it dances to celebrate. Without quota data (API key), the first three moods use the 5-hour cost estimate ($8 / $25). Thresholds are the `LEVEL_*` constants in [`clawd-pet/renderer/quota.js`](clawd-pet/renderer/quota.js).
 
 **Daily recap.** After 6 PM, the first time Clawd is free it hands you a little report for the day: sessions, how long Claude worked, tests passed, commits and pushes, estimated cost and the busiest project. On Fridays it covers the week (Monday to today). The usage panel shows the same counts under **Today** and **Last 7 days**. Counts come from the hooks and are kept for 14 days in `stats.json` next to the settings. Turn it off under **Claude Code → Daily recap after work (weekly on Fridays)**.
 
@@ -276,7 +276,8 @@ clawd-pet/
 │   ├── main.js                main process: transparent always-on-top window, click-through, menu bar / Dock, usage scheduling, Claude Code hooks
 │   ├── preload.js             bridge between the main process and the page
 │   ├── index.html             page and styles for the pixel dialog boxes / usage panel / quota bar
-│   ├── pet.js                 3D model, motion, physics, interaction, moods
+│   ├── pet.js                 renderer entry: loads the modules in renderer/
+│   ├── renderer/              renderer modules: scene and model, animation, bubbles, quota bar, session crabs, permission UI, … (one feature per file, plain ES modules)
 │   ├── usage.js               local usage statistics + subscription quota check
 │   ├── trayTemplate*.png      menu bar icons
 │   ├── locales/en.json        English UI strings (keyed by the original Chinese text)

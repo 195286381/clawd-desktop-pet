@@ -7,7 +7,9 @@ Clawd Pet: an Electron + three.js desktop pet for macOS (Apple silicon) that sho
 All app code lives in `clawd-pet/`. Plain JavaScript, no build step, no framework.
 
 - `main.js`: main process. Transparent always-on-top window covering the work area, tray / Dock menus, settings (`userData/settings.json`), the local hooks server on `127.0.0.1:47615` (`POST /hook`, `POST /permission`), installing hooks into `~/.claude/settings.json`, jumping to a session's terminal tab.
-- `pet.js`: renderer (ES module). The 3D Clawd, animation, session crabs, bubbles, usage panel, quota bar.
+- `pet.js`: renderer entry. It only imports the modules in `renderer/` (plain ES modules, loaded directly by the page) and starts the loop; the header comment lists what each module holds.
+- `renderer/`: one feature per file: `scene` / `model` (three.js scene, Clawd's mesh, faces, props), `animation` (per-frame pose and physics), `behavior` (picking actions, clinging), `input`, `loop`, `bubble`, `hud` (quota bar), `quota` (usage panel, moods), `sessions` / `crabs` (Claude Code sessions, head crabs, details), `perm`, `reactions`, `fx`, `reminders`, `chatter`, `sfx`, `commands` (IPC commands from the main process), `i18n` (`t()` and formatters).
+- `renderer/state.js`: an exported `let` is read-only to other modules, so state that several modules assign lives on two shared objects: `prefs` (menu settings) and `state` (runtime). Anything assigned in only one module stays a plain `let` there and is exported for reading.
 - `usage.js`: reads `~/.claude/projects/**/*.jsonl` for token / cost stats (`PRICES` table) and gets quota limits by running `claude -p /usage` and parsing its output.
 - `preload.js`: the only bridge between the two processes (`window.pet`). New IPC goes here plus an `ipcMain` handler in `main.js`.
 - `locales/en.json`: English strings keyed by the Chinese source text.
