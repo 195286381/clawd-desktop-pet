@@ -1,17 +1,17 @@
 // 和 Claude Code 联动(hooks):会话状态
 import { prefs, state } from './state.js';
-import { esc, fmtElapsed, t } from './i18n.js';
+import { esc, fmtElapsed, fmtReset, t } from './i18n.js';
 import { flashFace } from './model.js';
 import { sfx } from './sfx.js';
 import { bubbleKind, say, setBubbleHtml } from './bubble.js';
-import { usage, usageHtml } from './quota.js';
+import { quotaReset, usage, usageHtml } from './quota.js';
 import { CTX_FAT, CTX_FULL, crabArt } from './crabs.js';
 import { cmdKind, react } from './reactions.js';
 import { awayLog } from './reminders.js';
 import { action, isClinging, setAction } from './behavior.js';
 
 // ---------------- 和 Claude Code 联动(hooks) ----------------
-// 每个会话一个状态:思考中 → 调用工具(具体在干什么)→ 等你批准 / 等你回复 → 完成 / 出错。
+// 每个会话一个状态:(刚打开)待命 → 思考中 → 调用工具(具体在干什么)→ 等你批准 / 等你回复 → 完成 / 出错。
 // Clawd 据此抱电脑干活、跳起来报告、挥手提醒;用量面板底部列出所有会话。
 export const ccSessions = new Map();   // session → { state, tool, detail, project, since(进入当前状态), started(这轮任务开始), last }
 export const CC_BUSY = ['thinking', 'tool'];
@@ -31,7 +31,8 @@ export function ccActivity(x, short = false) {   // 一句话描述会话在干�
     const d = x.detail ? (short && x.detail.length > 16 ? x.detail.slice(0, 15) + '…' : x.detail) : '';
     return `${TOOL_LABEL[x.tool] ? t(TOOL_LABEL[x.tool]) : x.tool || t('干活')}${d ? t('：') + d : ''}`;
   }
-  return t({ thinking: '思考中', ask: '等你批准', waiting: '等你回复', done: '完成', error: '出错了' }[x.state] || '');
+  if (x.state === 'error' && STOP_WHY[x.why]) return t(STOP_WHY[x.why][1]);
+  return t({ idle: '待命', thinking: '思考中', ask: '等你批准', waiting: '等你回复', done: '完成', error: '出错了' }[x.state] || '');
 }
 export const ccIcon = state => `<em class="ico st-${state}">${crabArt(0)}</em>`;   // 会话列表里的状态图标:和头顶一样的像素小螃蟹,颜色表示状态
 export function ccSessionsHtml() {   // 用量面板底部的会话列表,点一行跳到那个会话
@@ -44,6 +45,18 @@ export function ccSessionsHtml() {   // 用量面板底部的会话列表,点一
     return `<div class="sess st-${x.state}" data-sid="${esc(sid)}"><span>${esc(x.title || x.project || t('会话'))}</span><b>${ccIcon(x.state)}${esc(ccActivity(x, true))}</b><i>${time}</i></div>`;
   }).join('');
   return `<div class="sep"></div><div class="sub">${t('Claude Code 会话')}</div>${rows}`;
+}
+// Claude 出错停下(StopFailure)的原因:图标、简短说明、给你的建议。没列出的(invalid_request / unknown 等)按普通出错说
+const STOP_WHY = {
+  rate_limit: ['⏳', '用量到上限了'], overloaded: ['🌀', '服务器太忙'], server_error: ['⚠️', '服务器出错'],
+  authentication_failed: ['🔑', '登录失效了'], oauth_org_not_allowed: ['🔑', '登录失效了'], cloud_credential_error: ['🔑', '云服务凭证失效'],
+  billing_error: ['💳', '账户付费有问题'], account_on_hold: ['💳', '账户被暂停了'], max_output_tokens: ['✂️', '回复太长被截断'], model_not_found: ['⚠️', '找不到这个模型'],
+};
+function stopHint(why) {
+  if (why === 'rate_limit') { const r = quotaReset(); return r ? fmtReset(r, true) : ''; }
+  if (why === 'overloaded' || why === 'server_error') return t('过一会儿再试');
+  if (STOP_WHY[why]?.[0] === '🔑') return t('在终端里重新登录（/login）');
+  return '';
 }
 function ccProject(ev) { const n = ev.title || ev.project; return n ? `<br><b>${esc(n)}</b>` : ''; }
 // 上下文快满(≥ 90%,快要自动压缩):提醒一次;压缩完、用量掉下去之后才会再提醒
@@ -63,6 +76,12 @@ export function ccAlert(html, secs, jump) {
 window.pet?.onClaude?.(ev => {
   const sid = ev.session || '?', now = Date.now();
   if (ev.event === 'Restore' && ccSessions.has(sid)) return;   // 启动时补回的,已经收到它的新事件就不用了
+  if (ev.event === 'Status') {   // 状态栏送来的上下文用量:只更新已经在列的会话,不算一次活动
+    const x = ccSessions.get(sid);
+    if (x && ev.ctx != null) { x.ctx = ev.ctx; ctxCheck(x, x); }
+    return;
+  }
+  const isNew = !ccSessions.has(sid);
   prefs.ccHooks = true;   // 收到过事件就说明 hooks 已经连上了
   const wasWorking = ccWorking();
   const x = ccSessions.get(sid) || { state: 'thinking', tool: '', detail: '', project: '', since: now, started: now, last: now };
@@ -76,6 +95,12 @@ window.pet?.onClaude?.(ev => {
   ccSessions.set(sid, x);
   ctxCheck(x, ev);
   switch (ev.event) {
+    case 'SessionStart':
+      // 刚打开(或 /clear、恢复)的会话:趴上来一只待命的螃蟹,一分钟后下去;记下它在哪个窗口,点了能跳过去。
+      // 压缩完重新开始的(source = compact)还在干活,不动它
+      if (isNew || ev.source !== 'compact') { to('idle'); x.since = x.started = now; x.tool = x.detail = ''; x.agents?.clear(); }
+      if (ev.source === 'clear') { x.ctx = 0; x.ctxWarned = false; }
+      break;
     case 'UserPromptSubmit': to('thinking'); x.started = now; x.since = now; x.tool = x.detail = ''; break;
     case 'PreToolUse':
       if (!CC_BUSY.includes(x.state)) x.started = now;   // 批准后继续干活,或者中途才连上
@@ -103,11 +128,17 @@ window.pet?.onClaude?.(ev => {
       if (prefs.ccNotify.done && took >= 15e3) { sfx('done'); flashFace('happy', 2.5); ccAlert(t('Claude 做完啦 ✅') + ccProject(ev), 6, true); }
       break;
     }
-    case 'StopFailure':
+    case 'StopFailure': {
       to('error'); x.agents?.clear();
+      x.why = STOP_WHY[ev.error] ? ev.error : '';
       if (state.userAway) awayLog.set(sid, 'error');
-      if (prefs.ccNotify.done) { sfx('error'); flashFace('cry', 2.5); ccAlert(t('⚠️ Claude 出错停下了') + ccProject(ev), 7); }
+      if (x.why === 'rate_limit') window.pet?.requestUsage?.();   // 额度可能用完了:马上查一下,血条跟上
+      if (!prefs.ccNotify.done) break;
+      sfx('error'); flashFace(x.why === 'overloaded' ? 'dizzy' : 'cry', 2.5);
+      const w = STOP_WHY[x.why], hint = stopHint(x.why);
+      ccAlert((w ? t('{0} Claude 停下了：{1}', w[0], t(w[1])) : t('⚠️ Claude 出错停下了')) + (hint ? `<br>${esc(hint)}` : '') + ccProject(ev), 7);
       break;
+    }
     case 'Notification': {
       // 优先看官方的 notification_type;老版本没有这个字段时再看提示文字
       const perm = ev.ntype === 'permission_prompt' || /permission/i.test(ev.message);

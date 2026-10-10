@@ -88,6 +88,7 @@ Every active Claude Code session is a pixel crab on Clawd's head (up to 4; each 
 
 | Crab | Meaning |
 |---|---|
+| Grey, still | Just opened, waiting for your first message (leaves after a minute) |
 | Grey | Thinking |
 | Rust, bobbing gently | Working |
 | Red with a pixel `!`, hopping | Needs your approval / waiting for your reply |
@@ -121,7 +122,7 @@ In **newly started** Claude Code sessions:
 - **Claude needs approval / is waiting for you / has a question** — Clawd waves, e.g. "🙋 Wants to use Bash — needs your approval"
 - **Still waiting** — after 3 minutes it waves again, then every 5 minutes, at most 3 times
 - **A tool call fails** — Clawd goes `x x` for a moment (no bubble; small failures are common)
-- **Claude stops with an error** — Clawd cries and tells you "⚠️ Claude stopped with an error"
+- **Claude stops with an error** — Clawd cries and tells you why when Claude Code says: "⏳ Claude stopped: hit the usage limit" with the time it comes back, servers busy (Clawd gets dizzy instead), login expired (log in again with /login), billing problem, reply cut off for length… The session box shows the reason too. Anything else is "⚠️ Claude stopped with an error"
 - **Context almost full** (90%) — once per session: "🦀 Context is almost full (92%), auto-compact is coming"
 - **Compacting context** — an open cardboard box appears over Clawd's head and sheets of paper fly in; when compaction is done the box gets taped shut, Clawd hops, and the chubby crab slims back down
 - **While you were away** — after 5 idle minutes Clawd lies down to sleep; when you're back it sums up what you missed, e.g. "While you were away: 🙋 api-server needs your approval (waiting 12 min) / ✅ clawd finished"
@@ -157,6 +158,8 @@ When Claude needs approval to use a tool and that session's window isn't in fron
 
 Connecting adds a few hooks to `~/.claude/settings.json`. Clawd only appends its own entries, backs up the original as `settings.json.clawd-backup`, and removes its entries when you untick the option. Apart from permission approval (which waits for your click), every hook runs in the background (`async`) and never slows Claude Code down: it `curl`s the event to `127.0.0.1:47615` and exits silently if Clawd isn't running. Each alert can be switched off in the same menu. Upgrading from an older version? Clawd adds any new hooks on launch.
 
+**Live quota** (**Claude Code → Live quota (via status line)** 实时额度, off by default) also wraps your Claude Code status line: each time it refreshes, the session data is `curl`ed to Clawd in the background, then handed to your own status line command, which shows as before. Clawd gets your quota and each session's context usage with every reply, so it no longer runs `claude -p "/usage"` every 5 minutes. Turning it off puts your original status line back. If you had no status line, Claude Code hides some footer hints (like "esc to interrupt") while it's on.
+
 ---
 
 ## Usage and quota
@@ -167,11 +170,11 @@ Click Clawd (or **View usage** 查看用量) for a pixel usage panel (sample dat
 
 | What | Where it comes from |
 |---|---|
-| Remaining % and reset time of the 5-hour and weekly quotas | The official `claude -p "/usage"` — the same numbers as `/usage` in Claude Code |
+| Remaining % and reset time of the 5-hour and weekly quotas | The official `claude -p "/usage"` — the same numbers as `/usage` in Claude Code; with **Live quota** on, Claude Code's status line data instead |
 | Cost and tokens for today, the last 7 days and the current 5-hour window, plus per-model share | Your local session logs in `~/.claude/projects/`, priced at Anthropic API rates |
 | Recent sessions (up to 5) with their state and duration; click one to jump to it | Claude Code hooks, updated every second while the panel is open |
 
-- The quota check **doesn't call a model, use quota, or leave a session behind**. It runs at launch and every 5 minutes (opening the panel refreshes data older than a minute)
+- The quota check **doesn't call a model, use quota, or leave a session behind**. It runs at launch and every 5 minutes (opening the panel refreshes data older than a minute). With **Live quota** on it's skipped while the status line keeps sending fresh numbers
 - Cost is an **estimate** at API prices — on a subscription you aren't billed this way
 - Subscription quotas exist only on Pro / Max; with an API key, only the cost estimate is shown
 - The panel stays open while the cursor is on it
@@ -227,7 +230,7 @@ Clawd has icons in the menu bar and the Dock (you can turn the Dock icon off). L
 - Hide / show Clawd, View usage
 - **Actions** (动作): hop, wave, dance, peek around, take a walk, stretch
 - **Position** (位置): cling to the screen edge / leave the edge, back to the center, move to next display (with more than one display)
-- **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting, show session crabs, approve permissions on Clawd, daily recap after work, ⌃⌥⌘C opens session list
+- **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting, live quota (via status line), approve permissions on Clawd, show session crabs, daily recap after work, ⌃⌥⌘C opens session list
 - **Appearance** (外观): size, quota bar, when the mouse passes over (go see-through / fade slightly / no change), holiday outfits
 - **Settings** (设置): self-talk (chatty / normal / quiet / silent), break reminder (off / 45 / 60 / 90 min), sound effects, power saving, free roaming, full click-through, show icon in Dock, launch at login
 - **Language / 语言**: follow system / 中文 / English

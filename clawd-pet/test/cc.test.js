@@ -90,7 +90,7 @@ test('hookEvent:把 Claude Code 的 hook JSON 整理成页面要的事件', () =
     tool_input: { command: 'npm   test\n  --watch' }, transcript_path: '/x.jsonl',
   }, 123);
   assert.deepEqual(ev, { event: 'PreToolUse', session: 's1', project: 'clawd-pet', message: '', at: 123, ntype: '', agent: '',
-    tool: 'Bash', detail: 'npm   test', error: '', cmd: 'npm test --watch' });
+    tool: 'Bash', detail: 'npm   test', error: '', source: '', stitle: '', cmd: 'npm test --watch' });
 
   const n = cc.hookEvent({ hook_event_name: 'Notification', message: 'Claude needs your permission', notification_type: 'permission_prompt' }, 1);
   assert.equal(n.ntype, 'permission_prompt');
@@ -105,6 +105,60 @@ test('hookEvent:把 Claude Code 的 hook JSON 整理成页面要的事件', () =
   assert.equal(f.tool, 'y');
   assert.equal(f.error.length, 60);
   assert.equal(cc.hookEvent({ tool_name: 'Bash', tool_input: { command: 'z'.repeat(600) } }).cmd.length, 500);
+});
+
+test('hookEvent:SessionStart 带上怎么开的和会话标题;StopFailure 带上出错原因', () => {
+  assert.ok(cc.HOOK_EVENTS.includes('SessionStart'));
+  const st = cc.hookEvent({ hook_event_name: 'SessionStart', session_id: 's1', source: 'resume', session_title: '修登录 bug' }, 1);
+  assert.equal(st.source, 'resume');
+  assert.equal(st.stitle, '修登录 bug');
+  const sf = cc.hookEvent({ hook_event_name: 'StopFailure', error: 'rate_limit', error_details: '429 Too Many Requests' }, 1);
+  assert.equal(sf.error, 'rate_limit');
+});
+
+test('statusCmd / statusOrig:包上原来的状态栏命令,能原样取回(含单引号、#、~)', () => {
+  for (const orig of [`jq -r '"\\(.model.display_name) \\(.context_window.used_percentage // 0)%"'`, `echo "it's # fine"; echo two`, '~/.claude/statusline.sh', '']) {
+    const cmd = cc.statusCmd(orig, 47615);
+    assert.ok(cmd.includes(cc.STATUS_MARK) && cmd.includes('127.0.0.1:47615/status'));
+    assert.equal(cc.statusOrig(cmd), orig);
+  }
+  assert.ok(!cc.statusCmd('', 1).includes('eval'));   // 原来没有状态栏:只转发,不显示东西
+});
+
+test('setStatusLine:打开时保留原来的设置,关掉时换回原样;原来没有就删掉', () => {
+  const cfg = { model: 'opus', statusLine: { type: 'command', command: '~/.claude/sl.sh', padding: 2 } };
+  cc.setStatusLine(cfg, true, 47615);
+  assert.ok(cc.isClawdStatus(cfg.statusLine));
+  assert.equal(cfg.statusLine.padding, 2);
+  cc.setStatusLine(cfg, true, 47616);   // 再打开一次:不会包两层,只换端口
+  assert.equal(cc.statusOrig(cfg.statusLine.command), '~/.claude/sl.sh');
+  assert.ok(cfg.statusLine.command.includes(':47616/'));
+  cc.setStatusLine(cfg, false);
+  assert.deepEqual(cfg, { model: 'opus', statusLine: { type: 'command', command: '~/.claude/sl.sh', padding: 2 } });
+
+  const bare = {};
+  cc.setStatusLine(bare, true, 47615);
+  assert.equal(bare.statusLine.type, 'command');
+  cc.setStatusLine(bare, false);
+  assert.deepEqual(bare, {});
+
+  const mine = { statusLine: { type: 'command', command: 'echo hi' } };   // 不是 Clawd 包的:关掉时不碰
+  cc.setStatusLine(mine, false);
+  assert.deepEqual(mine, { statusLine: { type: 'command', command: 'echo hi' } });
+});
+
+test('statusInfo:状态栏数据里取出额度和上下文用量', () => {
+  const s = cc.statusInfo({ session_id: 's1', context_window: { used_percentage: 25, context_window_size: 200000 },
+    rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1738425600 }, seven_day: { used_percentage: 41.2, resets_at: 1738857600 } } });
+  assert.equal(s.session, 's1');
+  assert.deepEqual(s.ctx, { used: 50000, size: 200000 });
+  assert.deepEqual(s.limits.fiveHour, { key: 'session', used: 23.5, remaining: 76.5, resetsAt: 1738425600000, resetText: '' });
+  assert.equal(s.limits.sevenDay.remaining, 100 - 41.2);
+
+  const api = cc.statusInfo({ session_id: 's2', context_window: { used_percentage: null, context_window_size: 200000 } });   // API Key:没有额度;第一次回复前上下文还是 null
+  assert.equal(api.limits, null);
+  assert.equal(api.ctx, null);
+  assert.equal(cc.statusInfo({ rate_limits: { seven_day: { used_percentage: 10 } } }).limits.fiveHour, null);
 });
 
 const asst = (o) => JSON.stringify({ type: 'assistant', sessionId: 'sid', cwd: '/p', ...o });

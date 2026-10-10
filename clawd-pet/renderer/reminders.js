@@ -5,7 +5,7 @@ import { nowSec } from './util.js';
 import { sfx } from './sfx.js';
 import { bubbleKind, bubbleUntil, say } from './bubble.js';
 import { mood, usage } from './quota.js';
-import { ccAlert, ccSessions } from './sessions.js';
+import { ccActivity, ccAlert, ccSessions } from './sessions.js';
 import { action, isClinging, setAction } from './behavior.js';
 
 // ---------------- 日报 / 周报 ----------------
@@ -61,7 +61,7 @@ export function welcomeBack() {
   for (const [sid, x] of ccSessions) {
     const name = esc(x.title || x.project || t('会话'));
     if (x.state === 'ask') asks.push(t('🙋 <b>{0}</b> 等你批准，已经等了 {1}', name, fmtMin(Math.max(1, Math.round((now - x.since) / 60e3)))));
-    else if (awayLog.get(sid) === 'error') others.unshift(t('⚠️ <b>{0}</b> 出错停下了', name));
+    else if (awayLog.get(sid) === 'error') others.unshift(x.state === 'error' && x.why ? t('⚠️ <b>{0}</b> 停下了：{1}', name, ccActivity(x)) : t('⚠️ <b>{0}</b> 出错停下了', name));
     else if (awayLog.get(sid) === 'done') others.push(t('✅ <b>{0}</b> 做完了', name));
   }
   awayLog.clear();

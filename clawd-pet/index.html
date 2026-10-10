@@ -151,7 +151,7 @@
   #riders.show { opacity: 1; }
   #riders .rider { display: flex; flex-direction: column; align-items: center; gap: 2px; }
   #riders svg { display: block; shape-rendering: crispEdges; fill: currentColor; }
-  :is(.rider, .pip, .ico).st-thinking { color: #C9C0B2; }
+  :is(.rider, .pip, .ico):is(.st-thinking, .st-idle) { color: #C9C0B2; }
   :is(.rider, .pip, .ico).st-tool { color: #A5502F; }
   :is(.rider, .pip, .ico):is(.st-ask, .st-waiting, .st-error) { color: #B8433F; }
   :is(.rider, .pip, .ico).st-done { color: #7FA383; }
