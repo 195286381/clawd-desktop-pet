@@ -1380,7 +1380,8 @@ function hitTest(px, py) {
   if (lx < 0 || ly < 0 || lx > CW || ly > CH) return false;
   ndc.set(lx / CW * 2 - 1, -(ly / CH * 2 - 1));
   raycaster.setFromCamera(ndc, camera);
-  return raycaster.intersectObject(root, true).length > 0;
+  // three.js 的射线不管 visible:没戴的帽子、没拿的电脑等藏起来的道具也会被打中,光标在头顶空白处就被当成在身上
+  return raycaster.intersectObject(root, true).some(h => { for (let o = h.object; o; o = o.parent) if (!o.visible) return false; return true; });
 }
 
 // ---- 防挡 ----
