@@ -169,7 +169,10 @@
   @keyframes crabHop { 50% { translate: 0 -2px; } }
   @keyframes crabBob { 50% { translate: 0 -1px; } }
   #riders .rider { position: relative; }
-  #riders .drop { position: absolute; right: -3px; top: -4px; fill: #6A9BCC; animation: crabDrip 1.1s steps(4, jump-none) infinite; }   /* 上下文快满:冒汗 */
+  #riders .drop { position: absolute; right: -3px; bottom: 10px; fill: #6A9BCC; animation: crabDrip 1.1s steps(4, jump-none) infinite; }   /* 上下文快满:冒汗 */
+  /* 子助手:派出它们的那只背上驮一只小螃蟹,数量写在它右边(不占位置,小螃蟹保持居中) */
+  #riders .kids { position: relative; }
+  #riders .kn { position: absolute; left: 100%; bottom: 0; margin-left: 2px; }
   @keyframes crabDrip { 0% { translate: 0 0; opacity: 1; } 100% { translate: 0 6px; opacity: 0; } }
   /* 压缩上下文时头顶的纸箱 */
   #packbox { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; transition: opacity .25s; }
