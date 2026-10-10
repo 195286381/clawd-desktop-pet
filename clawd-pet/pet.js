@@ -757,7 +757,7 @@ const crabSvg = (state, fat, lift) =>   // 等你的那只头顶一个「!」;�
   `<i class="rider st-${state}${lift ? ' lift' : ''}">${state === 'ask' || state === 'waiting' ? BANG : ''}${fat === 2 ? DROP : ''}${crabArt(fat)}</i>`;
 const dotsTip = document.getElementById('dotstip'), ridersEl = document.getElementById('riders');
 let dotsHover = false, dotsSince = 0, dotList = [], ridersTop = Infinity, ridersSide = 0, crabsOn = true;   // crabsOn:菜单里可以关掉
-let tipList = [], tipAnchor = null;   // 会话详情里列的会话(包括做完在等你的);详情挂在哪(头顶螃蟹那一排,没有螃蟹就是头顶)
+let tipList = [], tipAnchor = null;   // 会话详情里列的会话(和头顶螃蟹同一批);详情挂在哪(头顶螃蟹那一排,没有螃蟹就是头顶)
 let dotsPicked = null, dotsNoteUntil = 0;   // 光标指着的会话(螃蟹或详情里的一行);点了跳不过去的会话时,详情底部的说明显示到什么时候
 function dotSessions() {   // 要显示的会话:干活 / 等你的,加上刚做完或出错不到 1 分钟的;等你的排前面
   ccPurge();
@@ -766,10 +766,6 @@ function dotSessions() {   // 要显示的会话:干活 / 等你的,加上刚做
     .filter(([, x]) => CC_BUSY.includes(x.state) || x.state === 'ask' || x.state === 'waiting' || x.compacting || now - x.since < DOT_DONE_KEEP)
     .sort((a, b) => DOT_RANK[a[1].state] - DOT_RANK[b[1].state] || b[1].started - a[1].started)
     .slice(0, DOT_MAX);
-}
-function tipSessions() {   // 会话详情里列的:所有还在的会话,包括做完在等你回复的;排序和头顶螃蟹一样
-  ccPurge();
-  return [...ccSessions.entries()].sort((a, b) => DOT_RANK[a[1].state] - DOT_RANK[b[1].state] || b[1].started - a[1].started).slice(0, DOT_MAX);
 }
 const headPt = new THREE.Vector3(), headUp = new THREE.Vector3();
 // 身体顶面中心在屏幕上的位置,以及「头顶朝上」在屏幕上的方向(取最接近的 90° 倍数,像素保持清晰;
@@ -790,7 +786,7 @@ function updateRiders() {
   const hidden = !crabsOn || paused || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type);
   dotList = hidden ? [] : dotSessions();
   // 拎着时不显示详情;等你批准的气泡(带按钮)和用量面板开着时也不显示,免得盖住
-  tipList = !crabsOn || paused || permShown || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : tipSessions();
+  tipList = !crabsOn || paused || permShown || bubbleKind === 'usage' || ['drag', 'leave'].includes(action.type) ? [] : dotSessions();   // 和头顶螃蟹同一批:螃蟹走了详情里也不列
   const html = dotList.slice(0, RIDERS_MAX).map(([sid, x]) => crabSvg(x.state, crabFat(x), sid === dotsPicked)).join('')
     + (dotList.length > RIDERS_MAX ? `<span class="pips">${dotList.slice(RIDERS_MAX).map(([, x]) => `<i class="pip st-${x.state}"></i>`).join('')}</span>` : '');
   if (ridersEl.dataset.html !== html) { ridersEl.dataset.html = html; ridersEl.innerHTML = html; }
