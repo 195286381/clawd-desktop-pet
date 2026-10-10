@@ -12,7 +12,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "package": "electron-packager . Clawd --platform=darwin --arch=arm64 --icon=build/icon.icns --app-bundle-id=local.clawd.pet --extend-info=build/extend-info.plist --out=dist --overwrite --asar --ignore=\"^/dist\" --ignore=\"^/build/(?!icon\\.png)\" --ignore=\"^/\\.claude\""
+    "package": "node build/package.mjs"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
