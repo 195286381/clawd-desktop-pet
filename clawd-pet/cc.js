@@ -2,7 +2,7 @@
 // 从 main.js 拆出来,这样 test/ 里的单元测试不用启动 Electron 就能跑
 const path = require('path');
 
-const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop', 'SessionEnd'];
+const HOOK_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop', 'SessionEnd'];
 const HOOK_MARK = 'clawd-hook';
 const HOST_ID = /^local_[A-Za-z0-9-]{1,64}$/;   // Claude App 里的会话 id
 
@@ -64,7 +64,50 @@ function hookEvent(d, now = Date.now()) {
     project: d.cwd ? path.basename(String(d.cwd)) : '', message: String(d.message || ''), at: now,
     ntype: String(d.notification_type || ''), agent: String(d.agent_id || ''),   // 子助手的 id(SubagentStart / SubagentStop)
     tool: toolName(d.tool_name), detail: toolDetail(d.tool_name, d.tool_input), error: clip(d.error, 60),
+    source: String(d.source || ''), stitle: clip(d.session_title, 40),   // SessionStart:怎么开的(startup / resume / clear / compact / fork)、会话标题
     cmd: d.tool_name === 'Bash' ? String(d.tool_input?.command || '').replace(/\s+/g, ' ').slice(0, 500) : '',   // 认出跑测试 / git push / rm -rf,Clawd 做出反应
+  };
+}
+
+// ---------- 状态栏(statusLine):实时额度和上下文 ----------
+// Claude Code 每次刷新状态栏都会把会话数据(含订阅额度 rate_limits、上下文用量)喂给 statusLine 命令。
+// Clawd 把用户原来的 statusLine 命令包一层:先把数据在后台 curl 给 Clawd(不等它、Clawd 没开也静默失败),
+// 再原样交给原来的命令,状态栏显示不变。原命令用单引号转义后放在 eval 里,关掉时从这里原样取回
+const STATUS_MARK = 'clawd-statusline';
+const shq = s => `'${String(s).replace(/'/g, "'\\''")}'`;
+const isClawdStatus = sl => !!sl && typeof sl.command === 'string' && sl.command.includes(STATUS_MARK);
+function statusCmd(orig, port) {
+  const send = `{ printf '%s' "$input" | curl -s -m 1 -X POST -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:${port}/status; } >/dev/null 2>&1 &`;
+  return `input=$(cat); ${send}${orig ? ` printf '%s' "$input" | eval ${shq(orig)}` : ''} # ${STATUS_MARK}`;
+}
+function statusOrig(cmd) {   // 包装命令里原来的那条命令(原来没有就是 '')
+  const m = String(cmd).match(new RegExp(` eval '((?:[^']|'\\\\'')*)' # ${STATUS_MARK}$`));
+  return m ? m[1].replace(/'\\''/g, "'") : '';
+}
+// on:包上(已经包过就只更新端口);off:换回原来的,原来没有就删掉 statusLine。改的是传进来的 cfg
+function setStatusLine(cfg, on, port) {
+  const sl = cfg.statusLine;
+  if (on) {
+    const orig = isClawdStatus(sl) ? statusOrig(sl.command) : sl && sl.type === 'command' && typeof sl.command === 'string' ? sl.command : '';
+    if (sl && sl.type && sl.type !== 'command') return cfg;   // 不认识的类型不碰
+    cfg.statusLine = { ...(sl || {}), type: 'command', command: statusCmd(orig, port) };
+  } else if (isClawdStatus(sl)) {
+    const orig = statusOrig(sl.command);
+    if (orig) cfg.statusLine = { ...sl, command: orig }; else delete cfg.statusLine;
+  }
+  return cfg;
+}
+// 状态栏数据 → { session, ctx: { used, size } | null, limits: { fiveHour, sevenDay } | null }。
+// 额度窗口和 usage.js 解析 /usage 的格式一样(used / remaining 是百分比,resetsAt 是毫秒)
+function statusInfo(d) {
+  const win = (w, key) => (w && Number.isFinite(w.used_percentage)
+    ? { key, used: w.used_percentage, remaining: Math.max(0, 100 - w.used_percentage), resetsAt: Number(w.resets_at) > 0 ? w.resets_at * 1000 : 0, resetText: '' } : null);
+  const rl = d.rate_limits || {}, fiveHour = win(rl.five_hour, 'session'), sevenDay = win(rl.seven_day, 'week (all models)');
+  const cw = d.context_window || {}, size = Number(cw.context_window_size), pct = Number(cw.used_percentage);
+  return {
+    session: String(d.session_id || ''),
+    ctx: cw.used_percentage != null && Number.isFinite(pct) && size > 0 ? { used: Math.round(pct / 100 * size), size } : null,
+    limits: fiveHour || sevenDay ? { fiveHour, sevenDay } : null,
   };
 }
 
@@ -143,6 +186,7 @@ module.exports = {
   HOOK_EVENTS, HOOK_MARK, HOST_ID,
   isClawdHook, hasClawdHook, clawdHookEvents, clawdHooksStale, editHooks,
   clip, toolName, toolDetail, hookWhere, hookEvent,
+  STATUS_MARK, isClawdStatus, statusCmd, statusOrig, setStatusLine, statusInfo,
   contextUsed, contextFill, COMPACT_MARGIN, runningStep,
   ALWAYS_SCOPE, alwaysAllow, permDecision, permReplyBody,
 };

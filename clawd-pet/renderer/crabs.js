@@ -14,10 +14,10 @@ import { action, isClinging } from './behavior.js';
 
 // ---------------- 会话小螃蟹 & 任务标记「!」 ----------------
 // 每个 Claude Code 会话一只像素小螃蟹,不加框直接趴在 Clawd 头顶,跟着它一起转(贴边时侧过来趴在朝屏幕里的头顶上)。颜色表示状态:
-// 灰 = 思考中,橙 = 在干活(轻轻颠),红 = 等你批准 / 回复(头顶一个像素「!」,一起蹦),绿 = 刚做完,红 = 出错
-// (做完 / 出错的 1 分钟后消失)。光标移到小螃蟹上,列出每个会话在干什么,点螃蟹或详情里的一行跳到那个会话。
+// 灰 = 刚打开待命 / 思考中,橙 = 在干活(轻轻颠),红 = 等你批准 / 回复(头顶一个像素「!」,一起蹦),绿 = 刚做完,红 = 出错
+// (待命 / 做完 / 出错的 1 分钟后消失)。光标移到小螃蟹上,列出每个会话在干什么,点螃蟹或详情里的一行跳到那个会话。
 const DOT_MAX = 6, DOT_DONE_KEEP = 60e3, RIDERS_MAX = SCALE < 0.6 ? 3 : 4;   // 头顶最多趴 4 只(迷你只有 3 只的地方),多的每个一颗像素点
-const DOT_RANK = { ask: 0, waiting: 1, tool: 2, thinking: 3, error: 4, done: 5 };
+const DOT_RANK = { ask: 0, waiting: 1, tool: 2, thinking: 3, error: 4, done: 5, idle: 6 };
 // 9×5 像素,和菜单栏图标同一个造型;上下文快满时换成胖一圈(≥ 75%)、再胖一圈并冒汗(≥ 90%)的
 const CRAB_PX = [
   ['.#######.', '.#.###.#.', '#########', '.#######.', '.#.#.#.#.'],
@@ -81,14 +81,14 @@ export function updateRiders() {
   }
   trackLeavers(hidden, rot);
 }
-// 做完 / 出错的会话到时间离开时,那只螃蟹不是直接消失,而是从头顶跳下来:做完的挥挥手(蹦两下),
+// 待命 / 做完 / 出错的会话到时间离开时,那只螃蟹不是直接消失,而是从头顶跳下来:待命和做完的挥挥手(蹦两下),
 // 出错的翻个肚皮蹬蹬腿,然后横着爬走。只在站着时这样;贴边、拖着、藏起来时照旧直接消失
 const ridersPrev = new Map();   // 上一帧趴在头顶的螃蟹:sid → { state, fat, rect }
 function trackLeavers(hidden, rot) {
   if (hidden) { ridersPrev.clear(); return; }
   const cx = state.canvasLeft + CW / 2;
   for (const [sid, p] of ridersPrev)
-    if ((p.state === 'done' || p.state === 'error') && !dotList.some(([s]) => s === sid))
+    if (['done', 'error', 'idle'].includes(p.state) && !dotList.some(([s]) => s === sid))
       crabLeave(p.state, p.fat, p.rect, Math.sign(p.rect.left + p.rect.width / 2 - cx) || 1);   // 往离 Clawd 远的那边走
   ridersPrev.clear();
   if (rot !== 0) return;
