@@ -33,7 +33,7 @@ const opts = {
   out: path.join(root, 'dist'),
   overwrite: true,
   asar: true,
-  ignore: [/^\/dist/, /^\/build\/(?!icon\.png)/, /^\/\.claude/],
+  ignore: [/^\/dist/, /^\/build\/(?!icon\.png)/, /^\/\.claude/, /^\/test/, /^\/eslint\.config\.js/],
 };
 
 if (identity) {

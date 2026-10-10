@@ -12,11 +12,16 @@
   },
   "scripts": {
     "start": "electron .",
+    "test": "node --test 'test/*.test.js'",
+    "lint": "eslint .",
     "package": "node build/package.mjs"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
-    "electron": "^44.5.1"
+    "@eslint/js": "^9.39.5",
+    "electron": "^44.5.1",
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0"
   },
   "dependencies": {
     "three": "^0.170.0"

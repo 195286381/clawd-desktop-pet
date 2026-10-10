@@ -25,7 +25,7 @@ If the installed Clawd is running, quit it first (only one instance can run), or
 
 1. Fork the repo and create a branch from `main`.
 2. Keep each PR focused on one change.
-3. Run it and check the change by hand: there's no automated test suite yet. Say in the PR what you tried.
+3. Run `npm test` and `npm run lint` in `clawd-pet/` (CI runs both on every PR), then run the app and check the change by hand. The tests only cover logic that doesn't need Electron (`usage.js`, `cc.js`); put new testable logic there and add a test in `clawd-pet/test/`. Say in the PR what you tried.
 4. For anything visual, add a screenshot or a short GIF.
 5. If you change behavior or the menu, update both `README.md` and `README.zh-CN.md`. The Japanese `README.ja.md` is a translation — update it too if you can, otherwise mention it in the PR.
 

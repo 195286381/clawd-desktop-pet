@@ -45,7 +45,6 @@ const sp = {
 let peek = 0;
 let nextBlink = 2, blinkT = -1, blinkN = 0;
 let idleLook = 0, nextIdleLook = 3;
-let landKick = 0;
 let curFace = 'normal';
 let nextSweat = 3;
 // 每档的身体颜色:越累越暗淡,额度用完时变成灰色(直接混灰会发脏)
@@ -283,7 +282,6 @@ export function frame() {
       // 落地:身体压扁后果冻回弹,手往下"弹"一下
       sp.squash.x = Math.max(0.68, 1 - impact * 0.02); sp.squash.v = 0;
       sp.armDrop[0].v += impact * 0.08; sp.armDrop[1].v += impact * 0.08;
-      landKick = 1;
       if (impact > 13) sfx('bonk'); else if (a.type === 'fall' && impact > 4) sfx('land');
     }
   }

@@ -274,6 +274,8 @@ CLAWD_LANG=en npm start          # force the interface language (en / zh) withou
 
 Check the usage statistics on their own: `cd clawd-pet && node usage.js`
 
+Run the unit tests and the linter (no Electron needed, also run by GitHub Actions on every PR): `cd clawd-pet && npm test && npm run lint`
+
 ```
 clawd-pet/
 ├── clawd-pet/                 the desktop pet (Electron + three.js)
@@ -283,6 +285,8 @@ clawd-pet/
 │   ├── pet.js                 renderer entry: loads the modules in renderer/
 │   ├── renderer/              renderer modules: scene and model, animation, bubbles, quota bar, session crabs, permission UI, … (one feature per file, plain ES modules)
 │   ├── usage.js               local usage statistics + subscription quota check
+│   ├── cc.js                  Claude Code hooks logic that doesn't need Electron (hook config, events, permission replies)
+│   ├── test/                  unit tests (node --test)
 │   ├── trayTemplate*.png      menu bar icons
 │   ├── locales/en.json        English UI strings (keyed by the original Chinese text)
 │   ├── fonts/                 pixel font (Ark Pixel Font 12px, Simplified Chinese, + OFL license)

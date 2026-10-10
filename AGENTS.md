@@ -10,9 +10,11 @@ All app code lives in `clawd-pet/`. Plain JavaScript, no build step, no framewor
 - `pet.js`: renderer entry. It only imports the modules in `renderer/` (plain ES modules, loaded directly by the page) and starts the loop; the header comment lists what each module holds.
 - `renderer/`: one feature per file: `scene` / `model` (three.js scene, Clawd's mesh, faces, props), `animation` (per-frame pose and physics), `behavior` (picking actions, clinging), `input`, `loop`, `bubble`, `hud` (quota bar), `quota` (usage panel, moods), `sessions` / `crabs` (Claude Code sessions, head crabs, details), `perm`, `reactions`, `fx`, `reminders`, `chatter`, `sfx`, `commands` (IPC commands from the main process), `i18n` (`t()` and formatters).
 - `renderer/state.js`: an exported `let` is read-only to other modules, so state that several modules assign lives on two shared objects: `prefs` (menu settings) and `state` (runtime). Anything assigned in only one module stays a plain `let` there and is exported for reading.
+- `cc.js`: the Claude Code hooks logic that doesn't need Electron (editing the hooks config, turning hook JSON into events, parsing transcripts, permission replies). `main.js` does the file / HTTP / window side and calls into it.
 - `usage.js`: reads `~/.claude/projects/**/*.jsonl` for token / cost stats (`PRICES` table) and gets quota limits by running `claude -p /usage` and parsing its output.
 - `preload.js`: the only bridge between the two processes (`window.pet`). New IPC goes here plus an `ipcMain` handler in `main.js`.
 - `locales/en.json`: English strings keyed by the Chinese source text.
+- `test/`: unit tests (`node --test`) for `usage.js` and `cc.js`.
 - `build/`: icon and tray image scripts plus `extend-info.plist` for packaging.
 
 ## Run and verify
@@ -22,7 +24,8 @@ cd clawd-pet && npm install && npm start
 npm run package   # dist/Clawd-darwin-arm64/Clawd.app
 ```
 
-- There is no test suite or linter. Verify by running the app.
+- `npm test` (node:test) and `npm run lint` (ESLint, bug-catching rules only, no style rules) run on Linux without Electron; GitHub Actions runs both on every PR. Keep logic you want tested out of `main.js` (which requires Electron at load) and in `cc.js` / `usage.js`.
+- Tests don't cover the UI or Electron glue: still verify those by running the app.
 - Only one instance can run. If the installed Clawd is open, use `CLAWD_HOOK_PORT=47616 npm start`.
 - Never let a dev run modify the real `~/.claude/settings.json`: use `CLAWD_CC_SETTINGS=/tmp/s.json`.
 - Shortcuts for checking states: `CLAWD_SELFTEST=1|usage|cling`, `CLAWD_FAKE_QUOTA`, `CLAWD_FAKE_WEEK`, `CLAWD_FAKE_ETA`, `CLAWD_DEMO=1` (sample data, use it for README screenshots), `CLAWD_LANG=en|zh`. See the README's Development section.

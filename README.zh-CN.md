@@ -274,6 +274,8 @@ CLAWD_LANG=en npm start          # 临时指定界面语言（en / zh），不�
 
 单独检查用量统计：`cd clawd-pet && node usage.js`
 
+跑单元测试和代码检查（不用启动 Electron，每个 PR 上 GitHub Actions 也会跑）：`cd clawd-pet && npm test && npm run lint`
+
 ```
 clawd-pet/
 ├── clawd-pet/                 桌宠（Electron + three.js）
@@ -283,6 +285,8 @@ clawd-pet/
 │   ├── pet.js                 渲染进程入口：加载 renderer/ 下的模块
 │   ├── renderer/              渲染进程的各个模块：场景和模型、动画、气泡、血条、会话小螃蟹、批准权限……（一个功能一个文件，普通 ES 模块）
 │   ├── usage.js               本地用量统计 + 订阅额度查询
+│   ├── cc.js                  和 Claude Code 联动里不依赖 Electron 的部分（hooks 配置、事件整理、批准权限的回复）
+│   ├── test/                  单元测试（node --test）
 │   ├── trayTemplate*.png      菜单栏图标
 │   ├── locales/en.json        英文界面文案（以中文原文为键）
 │   ├── fonts/                 像素字体（方舟像素字体 12px 简体中文版 + OFL 授权）
