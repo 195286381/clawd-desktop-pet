@@ -23,6 +23,7 @@ export function showReport(week) {
   const cost = week ? r.cost : usage.today.cost;
   const lines = [...reportStats(r).map(g => g.join(' · ')), cost > 0 && t('估算花费 <b>{0}</b>', fmtCost(cost)), r.top && t('最忙的项目 <b>{0}</b>', esc(r.top))].filter(Boolean);
   sfx('chime');
+  if (week) state.medalUntil = Date.now() + 30e3;   // 周报:挂上金牌递过去
   ccAlert(`${week ? t('📰 本周小报') : t('📰 今天的小报')}<br>${lines.join('<br>')}`, 12);
 }
 export function checkReport(u) {
@@ -38,8 +39,24 @@ export function checkReport(u) {
 // 5 分钟没碰键盘鼠标:Clawd 去睡觉,记下这期间哪些会话做完 / 出错;一回来就醒,告诉你错过了什么
 
 export const awayLog = new Map();   // session → 'done' | 'error'
+// 每天第一次见到你(你回到电脑前、它醒过来时):先鞠个躬
+let bowDay = null;
+try { bowDay = localStorage.getItem('clawd.bowDay'); } catch { /* 读不到就当今天还没鞠过 */ }
+function firstToday() {
+  const day = new Date().toDateString();
+  if (bowDay === day) return false;
+  bowDay = day;
+  try { localStorage.setItem('clawd.bowDay', day); } catch { /* 存不了:重启后可能再鞠一次 */ }
+  return true;
+}
 export function welcomeBack() {
   if (state.paused) return;
+  if (mood < 4 && !isClinging() && ['sleep', 'rest', 'flop'].includes(action.type) && firstToday()) {
+    setAction({ type: 'bow' });
+    if (!ccSessions.size && !awayLog.size) return;
+    setTimeout(welcomeBack, 2600);   // 鞠完躬再说你错过了什么
+    return;
+  }
   const now = Date.now(), asks = [], others = [];
   for (const [sid, x] of ccSessions) {
     const name = esc(x.title || x.project || t('会话'));

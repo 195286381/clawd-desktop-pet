@@ -4,7 +4,7 @@ import { prefs, state } from './state.js';
 import { tr } from './i18n.js';
 import { nowSec, rand } from './util.js';
 import { AIM_Y, CAM_DIR, CH, CW, GROUND_PX, S, camera, canvas, clock, renderer, rim, scene, shadowPlane, sun } from './scene.js';
-import { ARM_Y, BD, BH, BW, EYE, EYE_X, EYE_Y, GROUP, HAT_PROPS, HOLIDAY, LEG_L, REST_X, arms, bodyG, eyes, faceOverride, faceOverrideUntil, flashFace, holidayToday, legs, orange, root, setFace, setProp, sweat, sweatMat } from './model.js';
+import { ARM_Y, BD, BH, BW, EYE, EYE_X, EYE_Y, GROUP, HAT_PROPS, HOLIDAY, LEG_L, MARKS, PROPS, REST_X, WEAR, arms, bodyG, eyes, faceOverride, faceOverrideUntil, flashFace, holidayToday, legs, orange, rainDrops, root, seasonHat, setFace, setProp, setWear, sweat, sweatMat } from './model.js';
 import { setBodyPose } from './anchor.js';
 import { G, Hpx, STEP_H, STEP_T, Wpx, cursor, feet, maxX, minX, st } from './world.js';
 import { sfx } from './sfx.js';
@@ -15,12 +15,12 @@ import { chatter } from './chatter.js';
 import { ccWorking } from './sessions.js';
 import { dotList, updateDots, updateRiders } from './crabs.js';
 import { ridersPop, updateFx, updatePack } from './fx.js';
-import { CLING_HIDE, CLING_PEEK, action, finish, isClinging, startCling } from './behavior.js';
+import { CLING_HIDE, CLING_PEEK, action, ccNow, finish, isClinging, setAction, startCling } from './behavior.js';
 import { hoverSince } from './input.js';
 import { stopLoop } from './loop.js';
 
 let curHoliday = null;
-let curProp = null;
+let curProp = null, curWear = null, nextSpin = 0;
 // ---------------- 弹簧 ----------------
 class Spring {
   constructor(x, freq, zeta) { this.x = x; this.v = 0; this.w = 2 * Math.PI * freq; this.z = zeta; }
@@ -36,7 +36,7 @@ class Spring {
 }
 const sp = {
   bx: new Spring(0, 2.6, 0.7), by: new Spring(0, 3.2, 0.6), rz: new Spring(0, 2.4, 0.55),
-  squash: new Spring(1, 3.4, 0.3),
+  squash: new Spring(1, 3.4, 0.3), rx: new Spring(0, 3, 0.6),
   armRot: [new Spring(0, 3.2, 0.42), new Spring(0, 3.2, 0.42)],
   armDrop: [new Spring(0, 5, 0.35), new Spring(0, 5, 0.35)],
   eyeX: new Spring(0, 4, 0.8), eyeY: new Spring(0, 4, 0.8),
@@ -69,9 +69,21 @@ export function frame() {
   let look = null, eyeOpen = [1, 1, 0.55, 0.4, 0.1][mood], walkDir = 0;
   let footLift = null;                      // 跳舞时直接指定抬脚高度
   let airKick = 0;                          // 被拎起来时的蹬腿幅度
+  let rx = 0, lookY = null;                 // 身子前倾(鞠躬、打瞌睡)、眼睛往上 / 下看
+  let flipAng = 0, spinY = 0;               // 后空翻的角度、原地转圈的角度
+  let typing = false;
+  const cc = ccNow();                       // Claude 这会儿在干什么
 
   if (a.type === 'rest') {
     armRot = [Math.sin(t * 1.1) * 0.04, Math.sin(t * 1.1 + 1) * 0.04];
+    if (curProp === 'laptop' && cc?.typing) {
+      // Claude 在改文件:双手交替狂敲键盘,盯着屏幕
+      const k = Math.sin(t * 19) > 0;
+      armRot = k ? [0.3, -0.05] : [-0.05, 0.3]; armDrop = k ? [-0.04, 0.06] : [0.06, -0.04];
+      look = 0; lookY = -0.6; typing = true;
+    } else if (curProp === 'cook') armRot = [0.35 + Math.sin(t * 3) * 0.05, 0.45 + Math.max(0, Math.sin(t * 5)) * 0.35];   // 一手端锅,一手翻铲
+    else if (curProp === 'wrench') armRot[0] = 0.5 + Math.abs(Math.sin(t * 7)) * 0.2;   // 拿扳手敲敲打打
+    else if (curProp === 'umbrella') armRot[0] = 0.15;
     if (p > a.dur) finish();
   }
 
@@ -88,7 +100,10 @@ export function frame() {
     const swingK = Math.max(0, ...feet.map(f => (f.swing ? Math.sin(Math.PI * Math.min(1, f.swing.k)) : 0)));
     by += swingK * 0.05;
     armRot = feet[0].swing ? [0.14, -0.05] : feet[1].swing ? [-0.05, 0.14] : [0, 0];
-    if (Math.abs(dx) < 0.04) { st.vx = 0; finish(); }
+    // 心情好时偶尔被绊一跤
+    if (a.tripAt === undefined) a.tripAt = mood <= 1 && Math.abs(dx) > 3 && Math.random() < 0.03 ? rand(0.5, 1.2) : -1;
+    if (a.tripAt >= 0 && p > a.tripAt && !st.air) { st.vx = 0; flashFace('surprised', 0.3); setAction({ type: 'trip', dir: walkDir }); }
+    else if (Math.abs(dx) < 0.04) { st.vx = 0; finish(); }
   }
 
   else if (a.type === 'lean') {
@@ -114,6 +129,12 @@ export function frame() {
       squash = st.vy > 2 ? 1.1 : 1.0;
       armRot = [0.55, 0.55];
       look = a.dir || 0;
+      if (a.flip) {   // 后空翻:在空中绕身体中心翻一整圈,落地前翻完
+        a.airT = (a.airT || 0) + dt;
+        const k = Math.min(1, a.airT / 0.62);
+        flipAng = Math.PI * 2 * k * k * (3 - 2 * k);
+        armRot = [0.9, 0.9];
+      }
     } else {
       armRot = [-0.1, -0.1];
       if (!a.landedAt) a.landedAt = p;
@@ -256,6 +277,65 @@ export function frame() {
     }
   }
 
+  else if (a.type === 'think') {
+    // Claude 在想事:右手托着脸,眼睛往上瞟、左右换着看,头顶右上方冒"…"
+    armRot = [-0.05, 1.15]; armDrop[1] = -0.15;
+    rz = Math.sin(p * 1.1) * 0.04;
+    look = Math.sin(p * 0.7) > 0 ? -0.8 : 0.8; lookY = 1;
+    if (p > a.dur) finish();
+  }
+
+  else if (a.type === 'search') {
+    // Claude 在搜索:举着放大镜挡在右眼前,身子左右探着找
+    const k = Math.sin(p * 1.3);
+    armRot[1] = 0.9; bx = k * 0.12; rz = -k * 0.05; by = Math.max(0, -k) * 0.08;
+    look = k > 0.3 ? 0.9 : k < -0.3 ? -0.9 : 0; lookY = -0.3;
+    if (p > a.dur) finish();
+  }
+
+  else if (a.type === 'trip') {
+    // 绊了一跤:往前一扑,趴在地上晕一会儿(头上转小星星),再爬起来
+    const d = a.dir || 1;
+    if (p < 0.22) { rz = -d * 0.45; bx = d * 0.15; by = 0.05; armRot = [1.1, 1.1]; }
+    else if (p < 2.1) {
+      if (!a.hit) { a.hit = true; sfx('bonk'); state.dizzyUntil = t + 1.7; }
+      by = -LEG_L * 0.75; squash = 0.9; rz = -d * 0.06; armRot = [-0.05, -0.05]; armDrop = [0.22, 0.22];
+    }
+    look = 0;
+    if (p > 2.7) finish();
+  }
+
+  else if (a.type === 'nod') {
+    // 站着打瞌睡:眼睛快闭上,身子一点一点往前栽,最后猛地惊醒
+    if (p < a.dur - 1) {
+      const c = (p % 1.7) / 1.7;
+      rx = 0.08 + 0.22 * c * c; by = -0.05 - 0.04 * c; eyeOpen = 0.08;
+      armRot = [-0.25, -0.25]; armDrop = [0.08, 0.08];
+      breathY = Math.sin(t * 1.2) * 0.02; breathQ = 0;
+    } else {
+      if (!a.woke) { a.woke = true; flashFace('surprised', 0.9); sfx('pop'); }
+      by = 0.12; squash = 1.05; armRot = [0.5, 0.5];
+    }
+    look = 0;
+    if (p > a.dur) finish();
+  }
+
+  else if (a.type === 'spin') {
+    // 被摸得开心:原地转一圈
+    const k = Math.min(1, p / 0.9);
+    spinY = Math.PI * 2 * k * k * (3 - 2 * k);
+    by = 0.12 * Math.sin(Math.PI * k); armRot = [0.8, 0.8]; look = 0;
+    if (p > 1.1) finish();
+  }
+
+  else if (a.type === 'bow') {
+    // 每天第一次见到你:朝你鞠个躬,再挥挥手
+    if (p < 1.2) { const k = Math.min(1, p / 0.3); rx = 0.5 * k; by = -0.04 * k; armRot = [-0.25, -0.25]; armDrop = [0.06, 0.06]; }
+    else if (p > 1.45) { const w = Math.sin((p - 1.45) * 11); armRot[1] = 1.25 + w * 0.32; bx = -w * 0.05; rz = 0.03; }
+    look = 0;
+    if (p > 2.6) finish();
+  }
+
   else if (a.type === 'fall') {
     armRot = [0.7, 0.7];
     eyeOpen = 0.5;
@@ -292,7 +372,7 @@ export function frame() {
   const cwx = cursor.x / S, cwy = (Hpx - cursor.y) / S;
   const near = Math.hypot(cwx - eyeWorld.x, cwy - eyeWorld.y) < 10;
   let lx = 0, ly = 0;
-  if (look !== null && !(near && a.type === 'rest')) { lx = look; }
+  if (look !== null && !(near && a.type === 'rest')) { lx = look; if (lookY !== null) ly = lookY; }
   else if (near) {
     lx = Math.max(-1, Math.min(1, (cwx - eyeWorld.x) / 3));
     ly = Math.max(-1, Math.min(1, (cwy - eyeWorld.y) / 3));
@@ -304,8 +384,11 @@ export function frame() {
   // ---- 4. 弹簧求解,摆好身体 ----
   const BX = sp.bx.step(bx, dt), BY = sp.by.step(by, dt), RZ = sp.rz.step(rz, dt);
   const Q = sp.squash.step(squash, dt);
-  setBodyPose(BX + shakeX, LEG_L + BY + breathY, Q + breathQ);
-  bodyG.rotation.z = RZ;
+  // 后空翻绕身体中心转:底面是转轴,所以转的时候把身体挪回去
+  setBodyPose(BX + shakeX + Math.sin(flipAng) * BH / 2, LEG_L + BY + breathY + (1 - Math.cos(flipAng)) * BH / 2, Q + breathQ);
+  bodyG.rotation.z = RZ + flipAng;
+  bodyG.rotation.x = sp.rx.step(rx, dt);
+  if (a.type !== 'leave') root.rotation.y = spinY;
   steadyPose = [BX, LEG_L + BY, Q];
   arms.forEach((arm, i) => {
     arm.g.rotation.z = arm.s * sp.armRot[i].step(armRot[i], dt);    // > 0:外端抬起
@@ -327,8 +410,9 @@ export function frame() {
       f.swing = null;
       const kick = airKick * Math.sin(t * 16 + i * 1.7) * 0.22;
       const lag = Math.max(-0.22, Math.min(0.22, st.vx * 0.03));      // 拖拽时脚向后甩,但有上限
-      const tx = hip.x - lag + kick;
-      const ty = hip.y - LEG_L * 0.95 + airKick * Math.abs(Math.sin(t * 16 + i * 1.7)) * 0.1;
+      // 脚挂在髋"下面";翻跟头时"下面"跟着身体转
+      const tx = hip.x - lag + kick + Math.sin(flipAng) * LEG_L * 0.95;
+      const ty = hip.y - Math.cos(flipAng) * LEG_L * 0.95 + airKick * Math.abs(Math.sin(t * 16 + i * 1.7)) * 0.1;
       const w = 2 * Math.PI * 3.2, z = 0.35;
       f.vx += (-w * w * (f.x - tx) - 2 * z * w * f.vx) * dt;
       f.vy += (-w * w * (f.y - ty) - 2 * z * w * f.vy) * dt;
@@ -395,6 +479,7 @@ export function frame() {
   let face = 'normal';
   const petting = state.hovering && state.interactive && !state.press && nowSec() - hoverSince > 2.5;   // 光标停在身上不动 = 在摸它
   if (petting && !a.purred) { a.purred = true; sfx('purr'); if (!bubbleKind) say(tr('嘿嘿～ 好舒服 💗'), 2.5); }
+  if (petting && a.type === 'rest' && nowSec() - hoverSince > 5 && t > nextSpin) { nextSpin = t + 25; setAction({ type: 'spin' }); }   // 摸久了:开心地转一圈
   if (a.type === 'drag') face = 'surprised';
   else if (t < state.dizzyUntil) face = 'dizzy';
   else if (faceOverride && t < faceOverrideUntil) face = faceOverride;
@@ -414,18 +499,44 @@ export function frame() {
     const h = new Date().getHours();
     const coding = prefs.ccHooks ? ccWorking() : usage && usage.lastActive && Date.now() - usage.lastActive < 3 * 60e3;
     a.prop = null;
+    const raining = Date.now() < state.rainUntil && ['rest', 'walk', 'lean', 'flop', 'slump'].includes(a.type);
     if (a.type === 'sleep') a.prop = 'nightcap';
+    else if (a.type === 'search') a.prop = 'magnifier';
+    else if (raining) a.prop = 'umbrella';   // 测试 / 构建连着失败:撑伞
     else if (a.type === 'dance') a.prop = a.face === 'star' ? 'party' : a.cool ? null : (Math.random() < 0.45 ? 'headphones' : Math.random() < 0.5 ? 'party' : null);
-    else if (a.type === 'rest' && mood < 3 && coding && (prefs.ccHooks || Math.random() < 0.55)) a.prop = 'laptop';   // 连上 hooks 后:Claude 在干活就一定抱着电脑
+    else if (a.type === 'rest' && mood < 3 && coding && (prefs.ccHooks || Math.random() < 0.55)) a.prop = cc?.long ? 'cook' : cc?.building ? 'wrench' : 'laptop';   // 连上 hooks 后:Claude 在干活就一定抱着电脑(跑了很久系围裙,在构建拿扳手)
     else if (a.type === 'rest' && mood < 3 && h >= 6 && h < 11 && Math.random() < 0.4) a.prop = 'coffee';
   }
-  let want = state.propOverride && t < state.propOverrideUntil ? state.propOverride : a.prop;
+  if (a.prop === null && prefs.holidayOn && ['rest', 'walk', 'lean', 'wave', 'jump', 'stretch'].includes(a.type)) {
+    // 季节帽子(冬天毛线帽、夏天草帽);戴着节日帽子时不换
+    const hol = state.holidayForce || holidayToday();
+    if (!hol || hol === 'scarf') a.prop = seasonHat();
+  }
+  const ov = state.propOverride && t < state.propOverrideUntil ? state.propOverride : null;
+  let want = ov && !WEAR[ov] ? ov : Date.now() < state.wrenchUntil && !['sleep', 'search'].includes(a.type) ? 'wrench' : a.prop;
   if (dotList.length && HAT_PROPS.includes(want)) want = null;   // 头顶趴着小螃蟹:不戴帽子,免得压住它们
   if (want !== curProp) { curProp = want; setProp(want); }
   const hol = prefs.holidayOn ? state.holidayForce || holidayToday() : null;
   const wantHol = hol && !(HOLIDAY[hol] && hol !== 'scarf' && HAT_PROPS.includes(curProp)) && !isClinging() ? hol : null;
   if (wantHol !== curHoliday) { curHoliday = wantHol; for (const [k, g] of Object.entries(HOLIDAY)) g.visible = k === wantHol; }
+  // 穿戴:push 后背火箭背包,测试连过挂金牌,Claude 在读文件 / 看网页就戴眼镜
+  const now = Date.now();
+  let wearWant = now < state.jetpackUntil ? 'jetpack' : now < state.medalUntil ? 'medal' : cc?.reading && ['rest', 'think'].includes(a.type) ? 'glasses' : null;
+  if (ov && WEAR[ov]) wearWant = ov;
+  if (isClinging() || a.type === 'sleep') wearWant = null;
+  if (wearWant !== curWear) { curWear = wearWant; setWear(wearWant); }
+  // 动作里的小记号
+  MARKS.dots.visible = a.type === 'think';
+  MARKS.dots.children.forEach((c, i) => { c.visible = (p * 2.2) % 4 > i + 0.5; });   // "…"一个一个冒出来
+  MARKS.bang.visible = a.type === 'nod' && !!a.woke;
+  MARKS.taps.visible = typing && Math.floor(t * 8) % 2 === 0;
+  MARKS.stars.visible = a.type === 'trip' && !!a.hit && p < 2.1;
+  MARKS.stars.rotation.y = t * 4;
+  if (curProp === 'umbrella') rainDrops.forEach((d, i) => { d.position.y = d.userData.y - ((t * 1.4 + i * 0.37) % 1) * 0.9; });
+  if (curProp === 'magnifier') PROPS.magnifier.position.x = eyes[1].g.position.x;
   eyes.forEach(e => {
+    const big = curProp === 'magnifier' && e.s > 0 ? 1.6 : 1;   // 放大镜后面的那只眼睛变大
+    e.g.scale.set(big, big, 1);
     e.g.position.x = e.s * EYE_X + EX * 0.16;
     e.g.position.y = EYE_Y + EY * 0.09;
     const s = Math.min(blink, eyeOpen);

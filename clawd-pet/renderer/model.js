@@ -19,7 +19,8 @@ export const orange = new THREE.MeshPhysicalMaterial({ color: 0xD97757, roughnes
 const dark = new THREE.MeshStandardMaterial({ color: 0x1B1714, roughness: 0.3 });
 
 function box(parent, mat, pos, size, r = 0.04) {
-  const m = new THREE.Mesh(new RoundedBoxGeometry(size[0], size[1], size[2], 3, r), mat);
+  r = Math.min(r, ...size.map(v => v / 2 - 0.001));   // 圆角不能超过最短边的一半,小零件也能用同一个函数
+  const m =new THREE.Mesh(new RoundedBoxGeometry(size[0], size[1], size[2], 3, r), mat);
   m.position.set(...pos);
   m.castShadow = true;
   parent.add(m);
@@ -133,11 +134,20 @@ export function setFace(face) {
 // ---------------- 道具 ----------------
 // 同样的方块风格,看场景自动出现:睡觉戴睡帽、庆祝戴派对帽、跳舞可能戴耳机、
 // 你在用 Claude Code 时摆台小电脑陪你写、早上捧杯咖啡。
-const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55 });
+// 一次只拿一样(PROPS);眼镜、奖牌、火箭背包是"穿戴"(WEAR),可以和手里的道具同时出现。
+// Claude 干活时头顶趴着会话小螃蟹,帽子会被摘掉,所以跟 Claude 干活有关的都放在手上、脸上、胸前、背上。
+const mat =c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55 });
 const PM = { cream: mat(0xF4EFE6), indigo: mat(0x5E6C9E), ochre: mat(0xD4A24C), verte: mat(0x7FA383), gold: mat(0xF2C14E),
-  grey: mat(0x55514C), steel: mat(0xB9B4AC), coffee: mat(0x5A3A26), orange };
+  grey: mat(0x55514C), steel: mat(0xB9B4AC), coffee: mat(0x5A3A26), orange,
+  red: mat(0xC8453F), dark, pink: flat(0xF2A08F), paper: mat(0xFFFCF6), straw: mat(0xE3C27A), cloud: mat(0x8E8A86), drop: flat(0x8FD3FF),
+  glass: new THREE.MeshStandardMaterial({ color: 0xBFE6FF, roughness: 0.1, transparent: true, opacity: 0.45 }),
+  flame: new THREE.MeshStandardMaterial({ color: 0xF2C14E, emissive: 0xF29B3E, emissiveIntensity: 0.8 }),
+  flame2: new THREE.MeshStandardMaterial({ color: 0xE0663A, emissive: 0xC8453F, emissiveIntensity: 0.6 }) };
 export const PROPS = {};
+const PROP_PARTS = {};   // 道具挂在手臂上 / 不算进道具范围的部分:和道具一起显示、隐藏
 function prop(name, parent) { const g = new THREE.Group(); g.visible = false; parent.add(g); PROPS[name] = g; return g; }
+function part(name, parent) { const g = new THREE.Group(); g.visible = false; parent.add(g); (PROP_PARTS[name] ||= []).push(g); return g; }
+const qpixels = (parent, rows, q, mats, z = 0) => { const g = pixels(parent, rows, q, new THREE.BoxGeometry(q, q, 0.03), mats, z); g.visible = true; return g; };
 { // 睡帽:一层层往一边耷拉的长尖帽 + 白帽檐 + 白绒球
   const g = prop('nightcap', bodyG);
   box(g, PM.cream, [0, BH + 0.08, 0], [BW * 0.36, 0.16, BW * 0.36], 0.05);
@@ -177,6 +187,138 @@ function prop(name, parent) { const g = new THREE.Group(); g.visible = false; pa
   box(g, PM.cream, [0.21, 0.02, 0], [0.09, 0.2, 0.07], 0.025);
   [[-0.05, 0.29], [0.02, 0.36], [0.07, 0.29]].forEach(([x, y]) => box(g, PM.cream, [x, y, 0], [0.05, 0.05, 0.05], 0.01));
 }
+{ // 放大镜:举在右眼前,镜片里的眼睛被放大(Claude 在搜索)。x 每帧跟着右眼走
+  const g = prop('magnifier', bodyG);
+  g.position.set(EYE_X, EYE_Y, BD / 2 + 0.28);
+  const R = 0.36, T = 0.07;
+  [-1, 1].forEach(s => {
+    box(g, PM.coffee, [0, s * (R + T / 2), 0], [R * 2 + T * 2, T, T], 0.01);
+    box(g, PM.coffee, [s * (R + T / 2), 0, 0], [T, R * 2, T], 0.01);
+  });
+  box(g, PM.glass, [0, 0, 0], [R * 2, R * 2, 0.02], 0.005);
+  const h = new THREE.Group(); h.position.set(R + 0.02, -R - 0.02, 0); h.rotation.z = 0.75; g.add(h);
+  box(h, PM.steel, [0, -0.06, 0], [0.11, 0.12, 0.11], 0.02); box(h, PM.coffee, [0, -0.36, 0], [0.1, 0.5, 0.1], 0.03);
+}
+{ // 扳手:左手握着(构建、装依赖)
+  prop('wrench', bodyG);
+  const g = part('wrench', arms[0].g);
+  g.position.set(-0.3, 0, 0.3); g.rotation.z = 0.25; g.scale.setScalar(1.7);
+  box(g, PM.steel, [0, 0.3, 0], [0.12, 0.62, 0.08], 0.02);
+  box(g, PM.steel, [0, 0.66, 0], [0.34, 0.14, 0.08], 0.02);
+  [-1, 1].forEach(s => box(g, PM.steel, [s * 0.11, 0.78, 0], [0.11, 0.18, 0.08], 0.02));
+  box(g, PM.red, [0, 0.08, 0], [0.15, 0.24, 0.11], 0.03);
+}
+{ // 围裙 + 锅铲 + 平底锅:一轮任务跑了很久,Claude 在憋大招
+  const g = prop('cook', bodyG), z = BD / 2 + 0.02, y0 = 0.02;
+  // 上窄下宽:胸前一块到眼睛下面,下摆盖住身子下半截,比身子还低一点
+  box(g, PM.paper, [0, 0.56, z], [BW * 0.3, 0.34, 0.03], 0.01);
+  box(g, PM.paper, [0, 0.27, z], [BW * 0.62, 0.42, 0.03], 0.01);
+  box(g, PM.paper, [0, y0 - 0.02, z], [BW * 0.66, 0.2, 0.03], 0.01);
+  for (let i = 0; i < 12; i++) box(g, i % 2 ? PM.ochre : PM.cream, [-BW * 0.33 + (i + 0.5) * BW * 0.055, y0 - 0.08, z + 0.012], [BW * 0.055, 0.07, 0.02], 0.003);   // 格子下摆
+  // 腰带绕身子一圈,右侧打个结
+  const t = 0.05, wy = 0.4;
+  box(g, PM.ochre, [0, wy, z + 0.01], [BW + t * 2, 0.08, 0.03], 0.01);
+  box(g, PM.ochre, [0, wy, -BD / 2 - 0.01], [BW + t * 2, 0.08, 0.03], 0.01);
+  [-1, 1].forEach(s => box(g, PM.ochre, [s * (BW / 2 + 0.015), wy, 0], [0.03, 0.08, BD + 0.04], 0.01));
+  const knot = new THREE.Group(); knot.position.set(BW / 2 + 0.04, wy, 0.1); g.add(knot);
+  box(knot, PM.ochre, [0, 0, 0], [0.06, 0.1, 0.1], 0.02);
+  [-1, 1].forEach(s => { box(knot, PM.ochre, [0.02, s * 0.09, s * 0.08], [0.05, 0.14, 0.16], 0.03).rotation.x = s * 0.5; });
+  box(knot, PM.ochre, [0.02, -0.2, 0], [0.04, 0.24, 0.06], 0.01);
+  // 口袋:像素描边,插着一把木勺
+  qpixels(g, ['XXXXXXX', 'X.....X', 'X.....X', 'XXXXXXX'], 0.05, { X: PM.ochre }).position.set(BW * 0.15, 0.2, z + 0.02);
+  box(g, PM.coffee, [BW * 0.15 + 0.08, 0.33, z + 0.03], [0.05, 0.22, 0.03], 0.01);
+  box(g, PM.coffee, [BW * 0.15 + 0.08, 0.46, z + 0.03], [0.1, 0.1, 0.03], 0.02);
+  // 右手锅铲:柄从手里斜伸出来,铲面三道缝
+  const sp = part('cook', arms[1].g); sp.position.set(0.3, 0, 0.1); sp.rotation.z = -0.25;
+  box(sp, PM.coffee, [0, 0.28, 0], [0.09, 0.56, 0.09], 0.03);
+  box(sp, PM.steel, [0, 0.6, 0], [0.06, 0.12, 0.05], 0.01);
+  box(sp, PM.steel, [0, 0.82, 0], [0.34, 0.34, 0.03], 0.02);
+  [-0.09, 0, 0.09].forEach(x => box(sp, PM.grey, [x, 0.84, 0.018], [0.03, 0.2, 0.01], 0.003));
+  // 左手平底锅:朝你倾一点,锅里一个荷包蛋
+  const pan = part('cook', arms[0].g); pan.position.set(-0.3, 0.02, 0.4); pan.rotation.x = 0.55;
+  box(pan, PM.coffee, [0, 0, 0.18], [0.09, 0.07, 0.4], 0.02);
+  box(pan, PM.dark, [0, 0, 0.72], [0.7, 0.08, 0.7], 0.06);
+  [-1, 1].forEach(s => {
+    box(pan, PM.dark, [0, 0.07, 0.72 + s * 0.33], [0.7, 0.08, 0.06], 0.02);
+    box(pan, PM.dark, [s * 0.33, 0.07, 0.72], [0.06, 0.08, 0.7], 0.02);
+  });
+  const egg = qpixels(pan, ['.WWW.', 'WWWWW', 'WWGWW', 'WWWW.', '.WW..'], 0.09, { W: PM.paper, G: PM.gold });
+  egg.rotation.x = -Math.PI / 2; egg.position.set(0, 0.06, 0.72);
+}
+export const rainDrops = [];
+{ // 小雨伞 + 头顶一朵下雨的小乌云(测试 / 构建连着失败)
+  const g = prop('umbrella', bodyG);
+  const u = new THREE.Group(); u.position.set(-BW / 2 - 0.2, ARM_Y, 0.2); u.rotation.z = -0.08; g.add(u);
+  box(u, PM.grey, [0, 1.0, 0], [0.09, 2.1, 0.09], 0.02); box(u, PM.grey, [0.48, 2.0, 0], [0.96, 0.07, 0.07], 0.02);
+  box(u, PM.coffee, [0.1, -0.05, 0], [0.28, 0.1, 0.1], 0.02);
+  [[3.0, 2.0], [2.4, 2.22], [1.7, 2.44], [0.9, 2.64]].forEach(([w, y], i) => box(u, i % 2 ? PM.cream : PM.indigo, [0.95, y, 0], [w, 0.24, w * 0.8], 0.04));
+  box(u, PM.gold, [0.95, 2.86, 0], [0.16, 0.2, 0.16], 0.04);
+  // 乌云不算进道具范围(不然血条和气泡要让到云上面去),单独挂着,和伞一起显示
+  const c = part('umbrella', bodyG); c.position.set(-0.2, BH + 3.2, 0);
+  [[0, 0, 1.6, 0.5], [-0.4, 0.3, 0.8, 0.55], [0.35, 0.38, 0.9, 0.65]].forEach(([x, y, w, h]) => box(c, PM.cloud, [x, y, 0], [w, h, 0.8], 0.12));
+  [[-0.6, -0.5], [0, -0.75], [0.55, -0.45], [-1.2, -1.3], [1.3, -1.1], [-1.5, -0.85], [1.0, -1.6]].forEach(([x, y]) => {
+    const d = box(c, PM.drop, [x, y, 0.1], [0.08, 0.22, 0.08], 0.03);
+    d.castShadow = false; d.userData.y = y; rainDrops.push(d);
+  });
+}
+{ // 毛线帽(冬天):罗纹帽檐 + 圆顶 + 大绒球
+  const g = prop('beanie', bodyG), rib = mat(0xE2D8C6);
+  for (let i = 0; i < 11; i++) box(g, i % 2 ? PM.cream : rib, [-BW * 0.45 + i * BW * 0.09, BH + 0.02, 0], [BW * 0.09, 0.3, BD * 1.08], 0.02);
+  box(g, PM.red, [0, BH + 0.32, 0], [BW * 0.84, 0.34, BD * 0.98], 0.1);
+  box(g, PM.cream, [0, BH + 0.32, 0], [BW * 0.845, 0.07, BD * 0.985], 0.01);
+  box(g, PM.red, [0, BH + 0.55, 0], [BW * 0.6, 0.2, BD * 0.75], 0.08);
+  box(g, PM.cream, [0, BH + 0.82, 0], [0.48, 0.44, 0.48], 0.18);
+}
+{ // 草帽(夏天):宽檐 + 帽顶 + 红色帽带
+  const g = prop('strawhat', bodyG);
+  box(g, PM.straw, [0, BH + 0.06, 0], [BW * 1.25, 0.07, BD * 1.6], 0.03);
+  box(g, PM.straw, [0, BH + 0.3, 0], [BW * 0.6, 0.42, BD * 0.75], 0.06);
+  box(g, PM.red, [0, BH + 0.17, 0], [BW * 0.61, 0.1, BD * 0.76], 0.02);
+}
+
+// 穿戴:和手里的道具分开管理,一次一样
+export const WEAR = {};
+function wear(name) { const g = new THREE.Group(); g.visible = false; bodyG.add(g); WEAR[name] = g; return g; }
+{ // 圆框眼镜:两只像素圆框 + 鼻梁 + 镜腿(Claude 在读文件、看网页)
+  const g = wear('glasses'), q = EYE / 3.2, lens = ['.XXXX.', 'X....X', 'X....X', 'X....X', '.XXXX.'];
+  [-1, 1].forEach(s => qpixels(g, lens, q, { X: dark }).position.set(s * EYE_X, EYE_Y, BD / 2 + 0.02));
+  box(g, dark, [0, EYE_Y + q, BD / 2 + 0.02], [2 * EYE_X - 6 * q, q * 0.9, 0.03], 0.005);
+  [-1, 1].forEach(s => box(g, dark, [s * (EYE_X + 3 * q), EYE_Y + q, BD / 2 + 0.01], [q * 2.5, q * 0.9, 0.03], 0.005));
+}
+{ // 金牌:挂在胸前(测试连过 3 次、递周报)
+  const g = wear('medal');
+  [-1, 1].forEach(s => { box(g, s < 0 ? PM.red : PM.indigo, [s * 0.17, BH * 0.45, BD / 2 + 0.02], [0.16, 0.6, 0.02], 0.005).rotation.z = s * 0.4; });
+  box(g, PM.gold, [0, BH * 0.2, BD / 2 + 0.035], [0.46, 0.46, 0.06], 0.08);
+  qpixels(g, ['..X..', 'XXXXX', '.XXX.', '.X.X.'], 0.07, { X: PM.ochre }).position.set(0, BH * 0.2, BD / 2 + 0.075);
+}
+{ // 火箭背包:背上两个罐子,底下喷火(git push)
+  const g = wear('jetpack');
+  [-1, 1].forEach(s => {
+    const x = s * 1.0, z = -BD / 2 - 0.1, y = BH * 0.62;
+    box(g, PM.steel, [x, y, z], [0.56, 1.5, 0.56], 0.12);
+    box(g, PM.red, [x, y + 0.86, z], [0.4, 0.3, 0.4], 0.1);
+    box(g, PM.grey, [x, y - 0.82, z], [0.4, 0.16, 0.4], 0.03);
+    box(g, PM.flame, [x, y - 1.15, z], [0.36, 0.5, 0.36], 0.08).castShadow = false;
+    box(g, PM.flame2, [x, y - 1.55, z], [0.2, 0.32, 0.2], 0.05).castShadow = false;
+  });
+  box(g, PM.grey, [0, BH * 0.6, -BD / 2 - 0.05], [1.4, 0.18, 0.1], 0.02);
+}
+export function setWear(name) { for (const [k, g] of Object.entries(WEAR)) g.visible = k === name; }
+
+// 动作里的小记号:想事的"…"、惊醒的"!"、打字的小火花、摔晕的小星星
+export const MARKS = {};
+function mark(name) { const g = new THREE.Group(); g.visible = false; bodyG.add(g); MARKS[name] = g; return g; }
+{ // "…":三个越来越大的小方块,飘在头顶右上方(正上方是会话小螃蟹的位置)
+  const g = mark('dots');
+  [0, 1, 2].forEach(i => box(g, PM.paper, [0.95 + i * 0.42, BH + 0.15 + i * 0.22, 0.2], [0.2 + i * 0.07, 0.2 + i * 0.07, 0.2 + i * 0.07], 0.05));
+}
+{ const g = mark('bang'); box(g, PM.red, [1.0, BH + 0.65, 0.2], [0.14, 0.42, 0.14], 0.03); box(g, PM.red, [1.0, BH + 0.32, 0.2], [0.14, 0.14, 0.14], 0.03); }
+{ const g = mark('taps'); [[-0.3, 0.82], [0.32, 0.86]].forEach(([x, y]) => qpixels(g, ['.G.', 'G.G', '.G.'], 0.08, { G: PM.gold }).position.set(x, BH * 0.04 + y, BD / 2 + 0.5)); }
+{ // 小星星绕着头转
+  const g = mark('stars'); g.position.set(0, BH + 0.25, 0);
+  [0, 1, 2].forEach(i => { const a = i * Math.PI * 2 / 3; qpixels(g, ['.G.', 'GGG', '.G.'], 0.08, { G: PM.gold }).position.set(Math.cos(a) * 1.0, 0.1 * (i % 2), Math.sin(a) * 0.7); });
+}
+
 // 节日装扮:按日期自动出现,和上面的道具分开管理(戴别的帽子时,节日帽子先摘下)
 export const HOLIDAY = {};
 function holidayProp(name) { const g = new THREE.Group(); g.visible = false; bodyG.add(g); HOLIDAY[name] = g; return g; }
@@ -203,17 +345,50 @@ function holidayProp(name) { const g = new THREE.Group(); g.visible = false; bod
   box(g, PM.gold, [BW * 0.28, y - 0.3, BD / 2 + t + 0.045], [0.24, 0.05, 0.01], 0.005);
   box(g, PM.gold, [0, y, BD / 2 + t + 0.005], [BW + t * 2, 0.04, 0.01], 0.005);
 }
-export const HAT_PROPS = ['nightcap', 'party', 'headphones'];
+{ // 中秋:兔耳朵(一只竖着、一只耷拉)+ 怀里一块月饼
+  const g = holidayProp('bunny'), cake = mat(0xA9772F);
+  [-1, 1].forEach(s => {
+    const e = new THREE.Group(); e.position.set(s * BW * 0.22, BH, 0); e.rotation.z = -s * 0.18; g.add(e);
+    box(e, PM.cream, [0, 0.35, 0], [0.4, 0.7, 0.2], 0.08);
+    box(e, PM.pink, [0, 0.35, 0.09], [0.2, 0.55, 0.04], 0.02);
+    const tip = new THREE.Group(); tip.position.set(0, 0.68, 0); tip.rotation.z = s > 0 ? -1.1 : 0.05; e.add(tip);
+    box(tip, PM.cream, [0, 0.25, 0], [0.4, 0.55, 0.2], 0.08);
+    box(tip, PM.pink, [0, 0.22, 0.09], [0.2, 0.4, 0.04], 0.02);
+  });
+  const mc = new THREE.Group(); mc.position.set(-BW * 0.28, BH * 0.15, BD / 2 + 0.2); g.add(mc);
+  box(mc, PM.ochre, [0, 0, 0], [0.46, 0.46, 0.2], 0.06);
+  qpixels(mc, ['X.X', '.X.', 'X.X'], 0.07, { X: cake }, 0.11);
+}
+{ // 情人节:两根小天线,顶上各一颗像素爱心
+  const g = holidayProp('hearts');
+  [-1, 1].forEach(s => {
+    box(g, dark, [s * 0.35, BH + 0.3, 0], [0.05, 0.6, 0.05], 0.01).rotation.z = -s * 0.15;
+    qpixels(g, ['.R.R.', 'RRRRR', 'RRRRR', '.RRR.', '..R..'], 0.07, { R: PM.red }).position.set(s * 0.44, BH + 0.72, 0);
+  });
+}
+export const HAT_PROPS = ['nightcap', 'party', 'headphones', 'beanie', 'strawhat'];
 const LUNAR_NEW_YEAR = ['2027-02-06', '2028-01-26', '2029-02-13', '2030-02-03', '2031-01-23', '2032-02-11'];
+const MID_AUTUMN = ['2026-09-25', '2027-09-15', '2028-10-03', '2029-09-22', '2030-09-12', '2031-10-01', '2032-09-19'];
+const daysFrom = (d, s) => (d - new Date(s + 'T00:00:00')) / 864e5;
 export function holidayToday(d = new Date()) {
   const m = d.getMonth() + 1, day = d.getDate();
   if ((m === 10 && day >= 24) || (m === 11 && day === 1)) return 'witch';
   if (m === 12 && day >= 18 && day <= 26) return 'santa';
-  for (const s of LUNAR_NEW_YEAR) { const diff = (d - new Date(s + 'T00:00:00')) / 864e5; if (diff >= -5 && diff < 10) return 'scarf'; }
+  for (const s of LUNAR_NEW_YEAR) { const diff = daysFrom(d, s); if (diff >= -5 && diff < 10) return 'scarf'; }
+  if (m === 2 && day === 14) return 'hearts';
+  for (const s of MID_AUTUMN) { const diff = daysFrom(d, s); if (diff >= -3 && diff < 3) return 'bunny'; }
   return null;
 }
+// 季节帽子:冬天毛线帽,夏天草帽(闲着、头顶没螃蟹、没戴节日帽子时)
+export function seasonHat(d = new Date()) {
+  const m = d.getMonth() + 1;
+  return m === 12 || m <= 2 ? 'beanie' : m >= 6 && m <= 8 ? 'strawhat' : null;
+}
 
-export function setProp(name) { for (const [k, g] of Object.entries(PROPS)) g.visible = k === name; }
+export function setProp(name) {
+  for (const [k, g] of Object.entries(PROPS)) g.visible = k === name;
+  for (const [k, gs] of Object.entries(PROP_PARTS)) for (const g of gs) g.visible = k === name;
+}
 
 // 汗珠:用量多的时候从额头侧边滑下来
 export const sweatMat = new THREE.MeshStandardMaterial({ color: 0x8fd3ff, roughness: 0.1, transparent: true, opacity: 0 });
