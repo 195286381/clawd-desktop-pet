@@ -263,6 +263,8 @@ CLAWD_LANG=en npm start          # 設定を変えずに UI 言語を強制す�
 
 使用量の統計だけを確認する：`cd clawd-pet && node usage.js`
 
+ユニットテストと Lint を実行する（Electron は不要、PR ごとに GitHub Actions でも実行）：`cd clawd-pet && npm test && npm run lint`
+
 ```
 clawd-pet/
 ├── clawd-pet/                 デスクトップペット本体（Electron + three.js）
@@ -271,6 +273,8 @@ clawd-pet/
 │   ├── index.html             ページと、ピクセル風ダイアログ / 使用量パネル / クォータバーのスタイル
 │   ├── pet.js                 3D モデル、動き、物理、インタラクション、機嫌
 │   ├── usage.js               ローカルの使用量統計 + サブスクリプションのクォータ確認
+│   ├── cc.js                  Claude Code 連携のうち Electron に依存しない部分（hooks 設定、イベント整形、権限承認の返答）
+│   ├── test/                  ユニットテスト（node --test）
 │   ├── trayTemplate*.png      メニューバーのアイコン
 │   ├── locales/en.json        英語の UI 文字列（元の中国語テキストがキー）
 │   ├── fonts/                 ピクセルフォント（Ark Pixel Font 12px 簡体字中国語版 + OFL ライセンス）

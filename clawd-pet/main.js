@@ -8,6 +8,8 @@ const os = require('os');
 const http = require('http');
 const { execFile } = require('child_process');
 const { UsageTracker, fetchLimits, projectDirs, listJsonl } = require('./usage');
+const cc = require('./cc');
+const { HOOK_EVENTS, HOOK_MARK, HOST_ID, clip, toolName, toolDetail, runningStep } = cc;
 
 app.setName('Clawd');
 
@@ -87,8 +89,6 @@ function setPref(key, v) {
 // 出错停下 / 需要确认 / 压缩上下文 / 会话结束)用 curl 把事件发过来。hooks 都是 async(后台跑),不拖慢 Claude Code;
 // Clawd 没开着时 curl 静默失败,也不影响。
 const HOOK_PORT = (!app.isPackaged && Number(process.env.CLAWD_HOOK_PORT)) || 47615;   // 开发自测可换端口,避免和正在运行的 Clawd 冲突
-const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'PreCompact', 'PostCompact', 'SessionEnd'];
-const HOOK_MARK = 'clawd-hook';
 // 顺带告诉 Clawd 这个会话开在哪个 App 里(启动它的 App 的 bundle id)、哪个终端(tty),
 // 以及在 Claude App 里的会话 id,点小螃蟹时好跳过去
 const HOOK_HEADERS = `-H 'Content-Type: application/json' -H "X-Clawd-App: $__CFBundleIdentifier" -H "X-Clawd-Tty: $(ps -o tty= -p $PPID)" -H "X-Clawd-Host: $CLAUDE_CODE_HOST_SESSION_ID"`;
@@ -103,32 +103,24 @@ function readCC() {
   try { return JSON.parse(fs.readFileSync(ccSettingsFile(), 'utf8')); }
   catch (e) { if (e.code === 'ENOENT') return {}; throw e; }   // 文件损坏时抛出,不去覆盖它
 }
-const isClawdHook = h => typeof h.command === 'string' && h.command.includes(HOOK_MARK);
 function ccHookEvents() {   // 已经装了 Clawd hook 的事件
-  try { const h = readCC().hooks || {}; return HOOK_EVENTS.filter(ev => (h[ev] || []).some(g => (g.hooks || []).some(isClawdHook))); }
+  try { return cc.clawdHookEvents(readCC().hooks); }
   catch { return []; }
 }
 const ccHooked = () => ccHookEvents().length > 0;
 // 旧版 hook 命令不带 App / tty / Claude App 会话 id(点小螃蟹没法跳转),启动时换成新的
 function ccHooksStale() {
-  try { const h = readCC().hooks || {}; return HOOK_EVENTS.some(ev => (h[ev] || []).some(g => (g.hooks || []).some(x => isClawdHook(x) && !x.command.includes('X-Clawd-Host')))); }
+  try { return cc.clawdHooksStale(readCC().hooks); }
   catch { return false; }
 }
-const ccApproveOn = () => { try { return ((readCC().hooks || {}).PermissionRequest || []).some(g => (g.hooks || []).some(isClawdHook)); } catch { return false; } };
+const ccApproveOn = () => { try { return cc.hasClawdHook(readCC().hooks, 'PermissionRequest'); } catch { return false; } };
 // 只增删 Clawd 自己的那几条,别的 hooks 原样保留;改之前先备份
 function editCCHooks(mutate) {
   const file = ccSettingsFile();
   const cfg = readCC();
   // 只在第一次备份:保留的是装 Clawd 之前的原样
   if (fs.existsSync(file) && !fs.existsSync(file + '.clawd-backup')) fs.copyFileSync(file, file + '.clawd-backup');
-  const hooks = cfg.hooks || {};
-  const set = (ev, hook) => {   // hook 为 null 时只删掉 Clawd 的
-    const groups = (hooks[ev] || []).map(g => ({ ...g, hooks: (g.hooks || []).filter(h => !isClawdHook(h)) })).filter(g => g.hooks.length);
-    if (hook) groups.push({ hooks: [{ type: 'command', ...hook }] });
-    if (groups.length) hooks[ev] = groups; else delete hooks[ev];
-  };
-  mutate(set);
-  if (Object.keys(hooks).length) cfg.hooks = hooks; else delete cfg.hooks;
+  cc.editHooks(cfg, mutate);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
 }
@@ -152,52 +144,11 @@ function toggleCCHooks(on) {
   syncPrefs(); refreshMenus();
   if (on && ccHooked()) dialog.showMessageBox({ message: t('已连接 Claude Code'), detail: t('新开的 Claude Code 会话会把「在干什么 / 回复完成 / 需要确认 / 等你输入 / 出错」通知给 Clawd。已经开着的会话需要重新打开才生效。\n\n原配置已备份为 settings.json.clawd-backup。') });
 }
-// 工具名和一句话的"在干什么",只取很短的一段发给页面
-const clip = (x, n) => { const t = String(x || '').split('\n')[0].trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
-function toolName(n) {
-  n = String(n || '');
-  const m = n.match(/^mcp__(.+?)__(.+)$/);   // MCP 工具:mcp__服务__工具 → 工具
-  return m ? m[2] : n;
-}
-function toolDetail(n, input) {
-  if (!input || typeof input !== 'object') return '';
-  const base = p => (p ? path.basename(String(p)) : '');
-  switch (n) {
-    case 'Bash': {   // 命令短就直接显示命令(更直观),太长才用 Claude 写的说明
-      const cmd = String(input.command || '').split('\n')[0].trim();
-      return clip(cmd.length <= 32 || !input.description ? cmd : input.description, 40);
-    }
-    case 'Edit': case 'MultiEdit': case 'Write': case 'Read': return base(input.file_path);
-    case 'NotebookEdit': return base(input.notebook_path);
-    case 'Grep': case 'Glob': return clip(input.pattern, 30);
-    case 'WebFetch': try { return new URL(input.url).hostname; } catch { return ''; }
-    case 'WebSearch': return clip(input.query, 30);
-    case 'Task': case 'Agent': return clip(input.subagent_type || input.description, 30);
-    default: return '';
-  }
-}
-// 上下文用了多少:最后一条主对话 assistant 消息的输入 + 输出 token(含缓存);在那之后压缩过,就用压缩后的大小
-function contextUsed(text) {
-  const lines = text.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const l = lines[i];
-    if (l.includes('"subtype":"compact_boundary"')) { const m = l.match(/"postTokens":(\d+)/); return m ? Number(m[1]) : 0; }
-    if (!l.includes('"usage"') || !l.includes('"type":"assistant"')) continue;
-    let d; try { d = JSON.parse(l); } catch { continue; }   // 第一行可能是被截断的半行
-    const m = d.message, u = m?.usage;
-    if (d.type !== 'assistant' || d.isSidechain || !u || m.model === '<synthetic>') continue;
-    return (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0);
-  }
-  return null;
-}
-// 上下文的「满」= 自动压缩的位置。窗口优先看 CLAUDE_CODE_AUTO_COMPACT_WINDOW(环境变量或 Claude Code 配置里的 env);
-// 没设就按 200k,已经超过 200k 的会话说明是 1M 窗口。Claude Code 会在窗口前留一段余量就开始压缩(实测 500k 窗口在 ~470k 时压缩)
-const COMPACT_MARGIN = 33e3;
+// 上下文窗口优先看 CLAUDE_CODE_AUTO_COMPACT_WINDOW(环境变量或 Claude Code 配置里的 env)
 function contextFill(used) {
   let w = Number(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
   if (!(w > 0)) try { w = Number(readCC().env?.CLAUDE_CODE_AUTO_COMPACT_WINDOW); } catch { w = 0; }
-  if (!(w > 0)) w = used > 200e3 ? 1e6 : 200e3;
-  return Math.round(used / (w - COMPACT_MARGIN) * 100) / 100;
+  return cc.contextFill(used, w);
 }
 // 会话标题(Claude App 侧边栏 / /rename 起的名字,没有就用自动生成的):列表里优先显示它,比项目目录名好认。
 // 顺带读出上下文用了多少(小螃蟹快满时变胖)。Claude Code 会把标题反复追加到会话记录里,所以只读文件末尾一段
@@ -215,7 +166,7 @@ function sessionInfo(sid, file, fresh) {
       const text = buffer.toString('utf8'), last = re => [...text.matchAll(re)].pop()?.[1];
       const raw = last(/"type":"custom-title","customTitle":("(?:[^"\\]|\\.)*")/g) || last(/"type":"ai-title","aiTitle":("(?:[^"\\]|\\.)*")/g);
       const name = raw ? clip(JSON.parse(raw), 40) : c?.name || '';
-      const used = contextUsed(text);
+      const used = cc.contextUsed(text);
       const info = { name, ctx: used === null ? c?.ctx ?? null : contextFill(used), at: Date.now() };
       titles.set(sid, info);
       return info;
@@ -230,19 +181,9 @@ http.createServer((req, res) => {
     const perm = req.url === '/permission';
     if (!perm) res.end('ok');
     let d; try { d = JSON.parse(body); } catch { return res.end(''); }
-    const appId = String(req.headers['x-clawd-app'] || '').trim(), tty = String(req.headers['x-clawd-tty'] || '').trim();
-    const host = String(req.headers['x-clawd-host'] || '').trim();
-    if (perm) return askPermission(res, d, {
-      app: /^[\w.-]+$/.test(appId) ? appId : '', tty: /^ttys\d+$/.test(tty) ? tty : '', host: HOST_ID.test(host) ? host : '' });
-    const where = {
-      app: /^[\w.-]+$/.test(appId) ? appId : '', tty: /^ttys\d+$/.test(tty) ? tty : '', host: HOST_ID.test(host) ? host : '' };
-    const ev = {
-      event: String(d.hook_event_name || ''), session: String(d.session_id || ''),
-      project: d.cwd ? path.basename(String(d.cwd)) : '', message: String(d.message || ''), at: Date.now(),
-      ntype: String(d.notification_type || ''),
-      tool: toolName(d.tool_name), detail: toolDetail(d.tool_name, d.tool_input), error: clip(d.error, 60),
-      cmd: d.tool_name === 'Bash' ? String(d.tool_input?.command || '').replace(/\s+/g, ' ').slice(0, 500) : '',   // 认出跑测试 / git push / rm -rf,Clawd 做出反应
-    };
+    const where = cc.hookWhere(req.headers);
+    if (perm) return askPermission(res, d, where);
+    const ev = cc.hookEvent(d);
     countHook(ev);
     ccQueue = ccQueue.then(() => sessionInfo(ev.session, d.transcript_path, ev.event === 'Stop' || ev.event === 'PostCompact'))   // 排队发,读标题再慢也不打乱事件顺序
       .then(({ name, ctx }) => { if (win && !win.isDestroyed()) win.webContents.send('cc', { ...where, ...ev, title: name, ctx }); });
@@ -253,27 +194,6 @@ http.createServer((req, res) => {
 // 会话只记在内存里:Clawd 重启(更新、开机自启、页面重载)后,正在跑长命令的会话要等它下一个事件才会出现。
 // 页面载入后扫一遍最近 30 分钟写过的会话记录,停在「调用工具还没出结果」或「Claude 还没答完」的当作正在干活补上。
 // 会话记录里只看得出是不是 Claude App 里开的,点这只小螃蟹跳不到具体标签页 / 会话,等它下一个事件来了就准了
-function runningStep(text) {   // 会话停在哪一步:{ state, name, input, sid, cwd } 或 null(这一轮已经结束)
-  const lines = text.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const l = lines[i];
-    if (!/"type":"(user|assistant|system)"/.test(l)) continue;
-    let d; try { d = JSON.parse(l); } catch { continue; }   // 第一行可能是被截断的半行
-    if (d.isSidechain || d.isMeta) continue;
-    if (d.type === 'system') { if (['stop_hook_summary', 'turn_duration', 'api_error', 'local_command'].includes(d.subtype)) return null; continue; }
-    const m = d.message, c = m?.content, at = { sid: d.sessionId, cwd: d.cwd };
-    if (d.type === 'assistant') {
-      if (m?.stop_reason && m.stop_reason !== 'tool_use') return null;   // end_turn 等:这一轮答完了
-      const b = Array.isArray(c) && c[c.length - 1];
-      return b && b.type === 'tool_use' ? { state: 'tool', name: b.name, input: b.input, ...at } : { state: 'thinking', ...at };
-    }
-    if (d.type !== 'user') continue;
-    const txt = typeof c === 'string' ? c : Array.isArray(c) ? c.map(b => (typeof b.content === 'string' ? b.content : b.text || '')).join('') : '';
-    if (/^\s*(<command-|<local-command|<bash-|\[Request interrupted)/.test(txt)) return null;   // 本地命令 / 你按了 Esc
-    return { state: 'thinking', ...at };   // 刚发出指令,或工具结果回来了 Claude 还在想
-  }
-  return null;
-}
 async function restoreSessions() {
   const cutoff = Date.now() - 30 * 60e3;
   for (const file of projectDirs().flatMap(d => listJsonl(d))) {
@@ -363,30 +283,12 @@ function syncPermKeys() {
   if (want && !has) for (const [k, d] of Object.entries(PERM_KEYS)) globalShortcut.register(k, () => send('perm-key:' + d));
   else if (!want && has) for (const k of Object.keys(PERM_KEYS)) globalShortcut.unregister(k);
 }
-// 「总是允许」:把 Claude Code 给的建议原样交回去,和终端里选「不再询问」一样。只认放行规则、自动接受编辑、加工作目录这几种,
-// 别的(比如切到跳过所有确认)不碰;按钮上写明放行了什么、记在哪
-const ALWAYS_SCOPE = { session: '本次会话', localSettings: '这个项目', projectSettings: '这个项目', userSettings: '所有项目' };
-function alwaysAllow(sugs) {
-  const list = (Array.isArray(sugs) ? sugs : []).filter(s => s && ALWAYS_SCOPE[s.destination] && (
-    (s.type === 'addRules' && s.behavior === 'allow' && Array.isArray(s.rules) && s.rules.length && s.rules.every(r => typeof r?.toolName === 'string'))
-    || (s.type === 'setMode' && s.mode === 'acceptEdits')
-    || (s.type === 'addDirectories' && Array.isArray(s.directories) && s.directories.length)));
-  if (!list.length) return null;
-  const what = list.map(s => (s.type === 'addRules' ? s.rules.map(r => (r.ruleContent ? `${toolName(r.toolName)}(${r.ruleContent})` : toolName(r.toolName))).join(', ')
-    : s.type === 'setMode' ? t('自动接受编辑') : t('访问 {0}', s.directories.map(d => path.basename(String(d))).join(', '))));
-  return { list, label: `${clip(what.join(' · '), 44)} · ${t(ALWAYS_SCOPE[list[0].destination])}` };
-}
+const alwaysAllow = sugs => cc.alwaysAllow(sugs, t);
 function permReply(id, behavior, answers, message) {
   const p = perms.get(id);
   if (!p) return;
   perms.delete(id); clearTimeout(p.timer); syncPermKeys();
-  // 选择题(AskUserQuestion):答案放进 updatedInput.answers 交回去,Claude Code 就不再弹题;自己写的回答原样当答案。
-  // 总是允许:带上放行规则;拒绝时写了原因,就一起告诉 Claude
-  const decision = p.input && answers ? { behavior: 'allow', updatedInput: { ...p.input, answers } }
-    : behavior === 'always' && p.always ? { behavior: 'allow', updatedPermissions: p.always }
-    : behavior === 'deny' && message ? { behavior: 'deny', message }
-    : behavior === 'allow' || behavior === 'deny' ? { behavior } : null;
-  p.res.end(decision ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }) : '');
+  p.res.end(cc.permReplyBody(cc.permDecision(p, behavior, answers, message)));
 }
 function askPermission(res, d, where) {
   if (!win || win.isDestroyed() || hidden || passthrough) return res.end('');
@@ -585,7 +487,6 @@ function minimize() {
 }
 // 点会话小螃蟹:跳到这个会话所在的窗口。iTerm / Terminal 按 tty 选中具体的标签页,Claude App 用它自己的链接打开那个会话,
 // 其他 App(VS Code、Ghostty 等)切到最前面
-const HOST_ID = /^local_[A-Za-z0-9-]{1,64}$/;   // Claude App 里的会话 id
 const TAB_SCRIPTS = {
   'com.googlecode.iterm2': tty => `tell application id "com.googlecode.iterm2"
   repeat with w in windows
