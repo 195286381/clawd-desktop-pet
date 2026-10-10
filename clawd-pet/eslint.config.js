@@ -12,8 +12,12 @@ module.exports = [
       'no-empty': ['error', { allowEmptyCatch: true }],
     },
   },
-  {   // 渲染进程:ES module,跑在浏览器里
-    files: ['pet.js'],
+  {   // 渲染进程:pet.js 和 renderer/ 下的 ES module,跑在浏览器里
+    files: ['pet.js', 'renderer/**/*.js'],
     languageOptions: { sourceType: 'module', globals: { ...globals.browser } },
+  },
+  {   // 打包脚本:跑在 Node 里的 ES module
+    files: ['**/*.mjs'],
+    languageOptions: { sourceType: 'module' },
   },
 ];
