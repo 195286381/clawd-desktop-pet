@@ -17,17 +17,16 @@
   #c.ghost[data-fade="none"] { opacity: 1; }
   #c.dragging { cursor: grabbing; }
 
-  /* 头顶血条:和气泡同一套米白卡片风格,格子和百分比装在同一个胶囊里;贴边时竖过来 */
+  /* 头顶血条:和会话详情 / 对话框同一套像素外框(.pxf),不带尖角;格子和百分比装在同一个框里;贴边时竖过来 */
   #badge { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 6px; opacity: 0;
-    padding: 4px 6px; background: #FFFCF6; border: 1px solid #E8DFD0; border-radius: 8px;
-    box-shadow: 0 3px 10px rgba(60, 40, 20, .14);
+    padding: 5px 7px; isolation: isolate;
     font: 12px/12px "Ark Pixel", -apple-system, "PingFang SC", sans-serif; -webkit-font-smoothing: none; white-space: nowrap;
     pointer-events: none; transition: opacity .25s; font-variant-numeric: tabular-nums; }
   #badge.show { opacity: 1; }
   :is(#badge, #dotstip .usage) .hp { display: flex; gap: 2px; }
-  :is(#badge, #dotstip .usage) .hp i { width: 5px; height: 8px; border-radius: 1.5px; background: #EDE6DA; transition: background .4s; }
+  :is(#badge, #dotstip .usage) .hp i { width: 5px; height: 8px; background: #EDE6DA; transition: background .4s; }
   :is(#badge, #dotstip .usage) b { color: #8A8470; font-weight: normal; }
-  #badge.vert { flex-direction: column; gap: 4px; padding: 6px 4px; }
+  #badge.vert { flex-direction: column; gap: 4px; padding: 7px 5px; }
   #badge.vert .hp { flex-direction: column-reverse; }
   #badge.vert .hp i { width: 8px; height: 5px; }
   #badge.vert b { display: flex; flex-direction: column; align-items: center; line-height: 12px; }
@@ -45,7 +44,7 @@
   :is(#badge, #dotstip .usage) .ring { width: 15px; height: 15px; flex: none; }
   :is(#badge, #dotstip .usage) .ring circle { fill: none; stroke-width: 2.6; }
   :is(#badge, #dotstip .usage) .ring .track { stroke: #EDE6DA; }
-  :is(#badge, #dotstip .usage) .ring .arc { stroke-linecap: round; transition: stroke-dasharray .4s; }
+  :is(#badge, #dotstip .usage) .ring .arc { transition: stroke-dasharray .4s; }
   :is(#badge, #dotstip .usage) .ring.lv0 .arc { stroke: #7FA383; }
   :is(#badge, #dotstip .usage) .ring.lv1 .arc { stroke: #D4A24C; }
   :is(#badge, #dotstip .usage) .ring.lv2 .arc { stroke: #C8703F; }
@@ -84,10 +83,10 @@
   #bubble.usage .qbar div { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .12), inset 0 2px 0 rgba(255, 255, 255, .25); }
   :is(#bubble.usage, #bubble.say) .sep { height: 2px; background: repeating-linear-gradient(90deg, #E2D7C5 0 4px, transparent 4px 8px); margin: 6px 0 7px; }   /* 对你说的话几句合成一个框时,也用这条像素虚线隔开 */
   #bubble.usage .title { letter-spacing: .5px; }
-  :is(#bubble, #dotstip) .pxf { position: absolute; inset: 0 0 -9px 0; z-index: -1; --ol: #4A3F35;
+  :is(#bubble, #dotstip, #badge) .pxf { position: absolute; inset: 0 0 -9px 0; z-index: -1; --ol: #4A3F35;
     filter: drop-shadow(3px 0 0 var(--ol)) drop-shadow(-3px 0 0 var(--ol)) drop-shadow(0 3px 0 var(--ol)) drop-shadow(0 -3px 0 var(--ol))
             drop-shadow(0 4px 0 rgba(74, 63, 53, .22)); }
-  :is(#bubble, #dotstip) .pxs { position: absolute; inset: 0; background: #FFF8EC;
+  :is(#bubble, #dotstip, #badge) .pxs { position: absolute; inset: 0; background: #FFF8EC;
     clip-path: polygon(0 0, 100% 0, 100% calc(100% - 9px),
       calc(var(--tail) + 6px) calc(100% - 9px), calc(var(--tail) + 6px) calc(100% - 6px),
       calc(var(--tail) + 3px) calc(100% - 6px), calc(var(--tail) + 3px) calc(100% - 3px),
@@ -186,7 +185,8 @@
   #dotstip { position: absolute; left: 0; top: 0; display: none; padding: 8px 12px 7px; isolation: isolate; pointer-events: none; --tail: 50%;
     font: 12px/12px "Ark Pixel", -apple-system, "PingFang SC", sans-serif; -webkit-font-smoothing: none; white-space: nowrap; color: #3A322A; }
   #dotstip .pxf i { display: none; }
-  #dotstip.notail .pxs { clip-path: inset(0 0 9px 0); }
+  :is(#dotstip.notail, #badge) .pxs { clip-path: inset(0 0 9px 0); }
+  #badge .pxf i { display: none; }
   #dotstip.show { display: grid; grid-template-columns: auto auto auto; gap: 0 10px; pointer-events: auto; }
   /* 每个会话一行,光标指着的那行高亮,点一下跳过去 */
   #dotstip > .row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; padding: 3px 4px; margin: 0 -4px; cursor: pointer; }
