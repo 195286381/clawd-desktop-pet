@@ -2,7 +2,7 @@
 // 从 main.js 拆出来,这样 test/ 里的单元测试不用启动 Electron 就能跑
 const path = require('path');
 
-const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'PreCompact', 'PostCompact', 'SessionEnd'];
+const HOOK_EVENTS = ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailure', 'Notification', 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop', 'SessionEnd'];
 const HOOK_MARK = 'clawd-hook';
 const HOST_ID = /^local_[A-Za-z0-9-]{1,64}$/;   // Claude App 里的会话 id
 
@@ -62,7 +62,7 @@ function hookEvent(d, now = Date.now()) {
   return {
     event: String(d.hook_event_name || ''), session: String(d.session_id || ''),
     project: d.cwd ? path.basename(String(d.cwd)) : '', message: String(d.message || ''), at: now,
-    ntype: String(d.notification_type || ''),
+    ntype: String(d.notification_type || ''), agent: String(d.agent_id || ''),   // 子助手的 id(SubagentStart / SubagentStop)
     tool: toolName(d.tool_name), detail: toolDetail(d.tool_name, d.tool_input), error: clip(d.error, 60),
     cmd: d.tool_name === 'Bash' ? String(d.tool_input?.command || '').replace(/\s+/g, ' ').slice(0, 500) : '',   // 认出跑测试 / git push / rm -rf,Clawd 做出反应
   };

@@ -71,6 +71,7 @@ let ccNotifyDone = st0.ccNotifyDone !== false, ccNotifyAsk = st0.ccNotifyAsk !==
 let ccCrabs = st0.ccCrabs !== false;   // 头顶的会话小螃蟹,默认开
 let ccReport = st0.ccReport !== false;   // 下班时递一张小报(周五是周报),默认开
 let powerSave = st0.powerSave === true, sound = st0.sound === true;   // 省电模式(帧率上限 30)、音效:默认都关
+let sessKey = st0.sessKey !== false;   // ⌃⌥⌘C 打开会话列表,默认开
 function syncPrefs() {
   send('chat:' + chatLevel); send('break:' + breakMin); send('holiday:' + (holiday ? 'on' : 'off'));
   send('power-save:' + (powerSave ? 'on' : 'off')); send('fade:' + hoverFade); send('sound:' + (sound ? 'on' : 'off'));
@@ -80,13 +81,14 @@ function syncPrefs() {
 function setPref(key, v) {
   ({ chatLevel: () => (chatLevel = v), breakMin: () => (breakMin = v), holiday: () => (holiday = v),
      ccNotifyDone: () => (ccNotifyDone = v), ccNotifyAsk: () => (ccNotifyAsk = v), ccCrabs: () => (ccCrabs = v), ccReport: () => (ccReport = v),
-     powerSave: () => (powerSave = v), sound: () => (sound = v), hoverFade: () => (hoverFade = v) })[key]();
+     powerSave: () => (powerSave = v), sound: () => (sound = v), hoverFade: () => (hoverFade = v), sessKey: () => (sessKey = v) })[key]();
   saveSetting(key, v); syncPrefs(); refreshMenus();
+  if (key === 'sessKey') syncSessKey();
 }
 
 // ---------- 和 Claude Code 联动 ----------
 // Clawd 在本机 127.0.0.1 开一个小接口;Claude Code 的 hooks(发出指令 / 调用工具 / 工具失败 / 回复完成 /
-// 出错停下 / 需要确认 / 压缩上下文 / 会话结束)用 curl 把事件发过来。hooks 都是 async(后台跑),不拖慢 Claude Code;
+// 出错停下 / 需要确认 / 压缩上下文 / 派出和收回子助手 / 会话结束)用 curl 把事件发过来。hooks 都是 async(后台跑),不拖慢 Claude Code;
 // Clawd 没开着时 curl 静默失败,也不影响。
 const HOOK_PORT = (!app.isPackaged && Number(process.env.CLAWD_HOOK_PORT)) || 47615;   // 开发自测可换端口,避免和正在运行的 Clawd 冲突
 // 顺带告诉 Clawd 这个会话开在哪个 App 里(启动它的 App 的 bundle id)、哪个终端(tty),
@@ -283,6 +285,19 @@ function syncPermKeys() {
   if (want && !has) for (const [k, d] of Object.entries(PERM_KEYS)) globalShortcut.register(k, () => send('perm-key:' + d));
   else if (!want && has) for (const k of Object.keys(PERM_KEYS)) globalShortcut.unregister(k);
 }
+// ⌃⌥⌘C:在 Clawd 头顶打开会话框,用键盘挑一个跳过去。↑ ↓ ⏎ Esc 只在框开着时占用,关了就放掉
+const SESS_KEY = 'Control+Alt+Command+C', NAV_KEYS = { Up: 'up', Down: 'down', Return: 'go', Escape: 'close' };
+function syncSessKey() {
+  if (globalShortcut.isRegistered(SESS_KEY)) globalShortcut.unregister(SESS_KEY);
+  if (sessKey && !globalShortcut.register(SESS_KEY, () => { if (hidden) restore(); send('kb-open'); })) console.error('⌃⌥⌘C 被别的 App 占用了');
+}
+function kbNav(on) {
+  for (const [k, d] of Object.entries(NAV_KEYS)) {
+    if (on && !globalShortcut.isRegistered(k)) globalShortcut.register(k, () => send('kb:' + d));
+    else if (!on && globalShortcut.isRegistered(k)) globalShortcut.unregister(k);
+  }
+}
+ipcMain.on('kb-nav', (_e, on) => kbNav(!!on));
 const alwaysAllow = sugs => cc.alwaysAllow(sugs, t);
 function permReply(id, behavior, answers, message) {
   const p = perms.get(id);
@@ -340,7 +355,29 @@ function setScale(v) {
   refreshMenus();
 }
 
-const workArea = () => screen.getPrimaryDisplay().workArea;
+// ---------- 多显示器:Clawd 待在哪块屏幕上(记在设置里;那块屏幕拔掉时先回主屏,插回来再回去) ----------
+let displayId = Number(loadSettings().display) || 0;
+const curDisplay = () => screen.getAllDisplays().find(d => d.id === displayId) || screen.getPrimaryDisplay();
+const workArea = () => curDisplay().workArea;
+// 搬到另一块屏幕:窗口铺满那块屏幕的工作区,Clawd 从 at(光标的屏幕坐标)落下;不给 at 就从屏幕中间上方掉下来
+function moveToDisplay(d, at) {
+  if (!win || win.isDestroyed()) return;
+  displayId = d.id; saveSetting('display', d.id);
+  const wa = d.workArea;
+  win.setBounds(wa);
+  const x = at ? at.x - wa.x : wa.width / 2, y = at ? at.y - wa.y : -40;
+  send(`display:${Math.round(x)},${Math.round(y)},${wa.width},${wa.height}`);
+  refreshMenus();
+}
+function nextDisplay() {
+  const all = screen.getAllDisplays(), i = all.findIndex(d => d.id === curDisplay().id);
+  moveToDisplay(all[(i + 1) % all.length]);
+}
+// 拖着 Clawd 松手时光标在别的屏幕上:搬过去
+ipcMain.on('drop-display', () => {
+  const p = screen.getCursorScreenPoint(), d = screen.getDisplayNearestPoint(p);
+  if (d.id !== curDisplay().id) moveToDisplay(d, p);
+});
 // ---------- 用量:每 30 秒增量扫描一次 Claude Code 的本地会话记录 ----------
 const tracker = new UsageTracker();
 function pushUsage() {
@@ -449,6 +486,7 @@ function createWindow() {
     syncPrefs();
     pushUsage(); refreshLimits(true);
     restoreSessions();
+    kbNav(false);   // 页面重载前会话框开着:放掉 ↑ ↓ ⏎ Esc
   });
 
   // 持续把光标位置(窗口坐标)发给渲染进程:用于眼睛跟随,以及判断光标是否在 Clawd 身上。
@@ -460,7 +498,8 @@ function createWindow() {
       const b = win.getBounds();
       const x = p.x - b.x, y = p.y - b.y, key = x + ',' + y, now = Date.now();
       if (key !== lastCur) { lastCur = key; lastMove = now; }
-      win.webContents.send('cursor', { x, y });
+      const other = screen.getDisplayNearestPoint(p).id !== curDisplay().id;   // 光标在别的屏幕上:拖着 Clawd 在那儿松手就搬过去
+      win.webContents.send('cursor', { x, y, other });
     }
     timer = setTimeout(poll, Date.now() - lastMove < 1000 ? 16 : 100);
   };
@@ -585,6 +624,7 @@ function menuTemplate({ forDock = false } = {}) {
     { label: t('位置'), submenu: [
       { label: t(clinging ? '离开边缘' : '贴到屏幕边上'), click: act('cling') },
       { label: t('回到屏幕中间'), click: act('home') },
+      ...(screen.getAllDisplays().length > 1 ? [{ label: t('移到下一块屏幕'), click: nextDisplay }] : []),
     ] },
     { type: 'separator' },
     { label: 'Claude Code', submenu: [
@@ -595,6 +635,7 @@ function menuTemplate({ forDock = false } = {}) {
       { label: t('在 Clawd 上批准权限'), type: 'checkbox', checked: ccApproveOn(), enabled: ccHooked(), click: (item) => toggleApprove(item.checked) },
       { label: t('头顶显示会话小螃蟹'), type: 'checkbox', checked: ccCrabs, enabled: ccHooked(), click: (item) => setPref('ccCrabs', item.checked) },
       { label: t('下班时递日报(周五是周报)'), type: 'checkbox', checked: ccReport, enabled: ccHooked(), click: (item) => setPref('ccReport', item.checked) },
+      { label: t('⌃⌥⌘C 打开会话列表'), type: 'checkbox', checked: sessKey, enabled: ccHooked(), click: (item) => setPref('sessKey', item.checked) },
     ] },
     { label: t('外观'), submenu: [
       { label: t('大小'), submenu: SIZES.map(([name, v]) => ({ label: t(name), type: 'radio', checked: petScale === v, click: () => setScale(v) })) },
@@ -632,6 +673,7 @@ app.whenReady().then(() => {
   }
   createWindow();
   createTray();
+  syncSessKey();
 
   // 开发自测(只在 npm start 时生效):
   //   CLAWD_SELFTEST=1     —— 4 秒后收起,8 秒后放出
@@ -647,8 +689,8 @@ app.whenReady().then(() => {
     setTimeout(restore, 8000);
   }
 
-  // 分辨率 / 显示器变化时重新铺满工作区
-  const refit = () => { if (win) win.setBounds(workArea()); };
+  // 分辨率 / 显示器变化时重新铺满工作区(Clawd 那块屏幕拔掉了就铺到主屏);菜单里「移到下一块屏幕」跟着出现 / 消失
+  const refit = () => { if (win) win.setBounds(workArea()); refreshMenus(); };
   screen.on('display-metrics-changed', refit);
   screen.on('display-added', refit);
   screen.on('display-removed', refit);

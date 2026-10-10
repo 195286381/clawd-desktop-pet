@@ -206,5 +206,10 @@
  "这个项目": "this project",
  "所有项目": "all projects",
  "自动接受编辑": "auto-accept edits",
- "访问 {0}": "access {0}"
+ "访问 {0}": "access {0}",
+ "移到下一块屏幕": "Move to next display",
+ "⌃⌥⌘C 打开会话列表": "⌃⌥⌘C opens session list",
+ "{0} 个子助手": "{0} subagents",
+ "↑↓ 选择 · ⏎ 跳过去 · esc 关闭": "↑↓ select · ⏎ jump · esc close",
+ "现在没有在跑的会话": "No sessions running right now"
 }

@@ -96,12 +96,15 @@ Every active Claude Code session is a pixel crab on Clawd's head (up to 4; each 
 
 A crab also shows how full that session's context is: it gets chubbier at 75% of the way to auto-compact, and chubbier still with a bead of sweat at 90% (hover shows the percentage). The point where Claude Code auto-compacts follows `CLAUDE_CODE_AUTO_COMPACT_WINDOW` if you set it.
 
+When Claude sends out subagents (Agent / Task), that session's crab carries a half-size crab on its back, with a pixel "×2", "×3" next to it when there's more than one; the session box shows the count too (e.g. "· 4 subagents"). They're all called back when the reply finishes.
+
 - **Hover** Clawd or the crabs to open the session box: the same sessions as the crabs on its head (working, waiting on you, or finished / failed less than a minute ago), each with its title (as shown in the Claude app's sidebar or set with /rename; the project folder if it has none), what it's doing and for how long. Each row starts with a little crab in that session's color, and your quota sits in the top row. With no sessions you just get the quota bar, and nothing pops up while you're carrying Clawd. If Clawd is in the middle of saying something, its bubble steps aside while the box is open and finishes afterwards.
 - Clawd stays put while you look. Move the cursor into the box and the crab for the row you point at lifts up and hops.
 
 <p align="center"><img src="docs/session-details.png" width="351" alt="The session box above Clawd: the quota on top, then one row per session with a pixel crab in its state's color, what it's doing and for how long"></p>
 
 - **Click a crab, or a row in that box** (including sessions shown as dots), to jump to that session: iTerm / Terminal switch to the exact tab (macOS asks once for Automation permission); the Claude app opens that exact session; VS Code, Ghostty and others are brought to the front. Sessions started before you connected Clawd need to be reopened once.
+- **Press <kbd>⌃⌥⌘C</kbd>** to open the session box without the mouse: <kbd>↑</kbd> <kbd>↓</kbd> to pick, <kbd>⏎</kbd> to jump, <kbd>Esc</kbd> or the shortcut again to close; it closes by itself after 15 seconds without a key. The arrow keys and Return are only taken while the box is open. Turn it off in **Claude Code → ⌃⌥⌘C opens session list**
 - **Restarting Clawd** (an update, launch at login) doesn't lose sessions that are mid-task: on launch it reads session logs written in the last 30 minutes and brings back the ones still running a tool or still thinking. Until such a session sends its next event, clicking its crab only brings its app to the front.
 - Finished and errored crabs leave after a minute — and they don't just vanish:
 
@@ -201,6 +204,7 @@ When the quota resets, it dances to celebrate. Without quota data (API key), the
 - **Lives on your desktop** — strolls along the bottom of the screen, looks around, hops, waves; its eyes follow your mouse
 - **Play with it** — click and it pops up the usage panel; drag it and it flails; toss it hard and it bounces and gets dizzy; rest the cursor on it for heart eyes; poke it 4 times and it gets annoyed
 - **Edge-cling mode** — drop it at the left or right edge and it hangs there sideways, just peeking out; it leans out when the cursor comes near
+- **Multiple displays** — drag it onto another display and let go, and it moves there (and stays there next launch); if that display is unplugged it goes back to the main one. Or use **Position → Move to next display**
 - **Lots of faces** — `> <`, `^ ^`, `x x`, sunglasses, heart eyes, star eyes, `$ $`, crying, winking…
 - **Props** — nightcap, party hat, headphones, a laptop while you code, morning coffee; a witch hat for Halloween, Santa hat for Christmas, red scarf for Lunar New Year
 - **Self-talk** — remarks on the time of day, your quota and how hard you've been working, in pixel speech bubbles with the [Ark Pixel](https://github.com/TakWolf/ark-pixel-font) font
@@ -222,8 +226,8 @@ Clawd has icons in the menu bar and the Dock (you can turn the Dock icon off). L
 
 - Hide / show Clawd, View usage
 - **Actions** (动作): hop, wave, dance, peek around, take a walk, stretch
-- **Position** (位置): cling to the screen edge / leave the edge, back to the center
-- **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting, show session crabs, approve permissions on Clawd, daily recap after work
+- **Position** (位置): cling to the screen edge / leave the edge, back to the center, move to next display (with more than one display)
+- **Claude Code**: connect Claude Code (task alerts), alert when a reply is done, alert when it needs approval / is waiting, show session crabs, approve permissions on Clawd, daily recap after work, ⌃⌥⌘C opens session list
 - **Appearance** (外观): size, quota bar, when the mouse passes over (go see-through / fade slightly / no change), holiday outfits
 - **Settings** (设置): self-talk (chatty / normal / quiet / silent), break reminder (off / 45 / 60 / 90 min), sound effects, power saving, free roaming, full click-through, show icon in Dock, launch at login
 - **Language / 语言**: follow system / 中文 / English

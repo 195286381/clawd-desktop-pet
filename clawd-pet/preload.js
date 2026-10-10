@@ -15,4 +15,6 @@ contextBridge.exposeInMainWorld('pet', {
   setClinging: (v) => ipcRenderer.send('clinging', v),
   stat: (kind) => ipcRenderer.send('stat', kind),   // 日报计数:测试通过 / commit / push
   reportShown: (day) => ipcRenderer.send('report-shown', day),
+  dropDisplay: () => ipcRenderer.send('drop-display'),   // 拖着松手时光标在别的屏幕上:搬过去
+  kbNav: (on) => ipcRenderer.send('kb-nav', on),   // 用键盘挑会话:框开着时占用 ↑ ↓ ⏎ Esc
 });

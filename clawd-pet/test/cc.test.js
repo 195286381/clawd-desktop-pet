@@ -89,13 +89,17 @@ test('hookEvent:把 Claude Code 的 hook JSON 整理成页面要的事件', () =
     hook_event_name: 'PreToolUse', session_id: 's1', cwd: '/Users/me/clawd-pet', tool_name: 'Bash',
     tool_input: { command: 'npm   test\n  --watch' }, transcript_path: '/x.jsonl',
   }, 123);
-  assert.deepEqual(ev, { event: 'PreToolUse', session: 's1', project: 'clawd-pet', message: '', at: 123, ntype: '',
+  assert.deepEqual(ev, { event: 'PreToolUse', session: 's1', project: 'clawd-pet', message: '', at: 123, ntype: '', agent: '',
     tool: 'Bash', detail: 'npm   test', error: '', cmd: 'npm test --watch' });
 
   const n = cc.hookEvent({ hook_event_name: 'Notification', message: 'Claude needs your permission', notification_type: 'permission_prompt' }, 1);
   assert.equal(n.ntype, 'permission_prompt');
   assert.equal(n.project, '');
   assert.equal(n.cmd, '');
+
+  const sub = cc.hookEvent({ hook_event_name: 'SubagentStart', session_id: 's1', agent_id: 'agent-7', agent_type: 'Explore' }, 1);
+  assert.equal(sub.agent, 'agent-7');                                   // 子助手驮在螃蟹背上:靠 agent id 配对开始 / 结束
+  assert.ok(cc.HOOK_EVENTS.includes('SubagentStart') && cc.HOOK_EVENTS.includes('SubagentStop'));
 
   const f = cc.hookEvent({ hook_event_name: 'PostToolUseFailure', tool_name: 'mcp__x__y', error: 'e'.repeat(100) }, 1);
   assert.equal(f.tool, 'y');
